@@ -1,12 +1,15 @@
-import './App.css'
+import { QueryProvider } from './providers/QueryProvider';
+import { AuthProvider } from './providers/AuthProvider';
+import { AppRouter } from './router/index';
 
-function App() {
-
+export function App() {
   return (
-    <>
-      
-    </>
-  )
+    <QueryProvider>
+      <AuthProvider>
+        <AppRouter />
+      </AuthProvider>
+    </QueryProvider>
+  );
 }
 
-export default App
+export default App;

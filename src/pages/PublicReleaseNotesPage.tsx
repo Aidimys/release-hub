@@ -1,0 +1,1 @@
+export const PublicReleaseNotesPage = () => <div className="p-8">Публичные Release Notes</div>;

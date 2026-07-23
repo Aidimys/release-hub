@@ -1,0 +1,1 @@
+export const WorkspaceDetailsPage = () => <div className="p-8">Страница рабочего пространства</div>;

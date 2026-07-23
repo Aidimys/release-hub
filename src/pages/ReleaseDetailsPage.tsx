@@ -1,0 +1,1 @@
+export const ReleaseDetailsPage = () => <div className="p-8">Страница релиза</div>;
