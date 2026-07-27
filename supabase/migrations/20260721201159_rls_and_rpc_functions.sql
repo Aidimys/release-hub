@@ -36,6 +36,38 @@ CREATE POLICY "Users can view workspaces they are members of"
     is_workspace_member(id, auth.uid())
   );
 
+DROP POLICY IF EXISTS "Owners can update workspaces they own" ON workspaces;
+CREATE POLICY "Owners can update workspaces they own"
+  ON workspaces FOR UPDATE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.workspace_members wm
+      WHERE wm.workspace_id = workspaces.id
+        AND wm.user_id = auth.uid()
+        AND wm.role = 'owner'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.workspace_members wm
+      WHERE wm.workspace_id = workspaces.id
+        AND wm.user_id = auth.uid()
+        AND wm.role = 'owner'
+    )
+  );
+
+DROP POLICY IF EXISTS "Owners can delete workspaces they own" ON workspaces;
+CREATE POLICY "Owners can delete workspaces they own"
+  ON workspaces FOR DELETE TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.workspace_members wm
+      WHERE wm.workspace_id = workspaces.id
+        AND wm.user_id = auth.uid()
+        AND wm.role = 'owner'
+    )
+  );
+
 -- Workspace Members: просмотр участников внутри своего воркспейса
 DROP POLICY IF EXISTS "Members can view other members in same workspace" ON workspace_members;
 CREATE POLICY "Members can view other members in same workspace"
