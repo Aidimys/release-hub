@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../../shared/api/supabase';
 
-// 1. Получение пространства (ждёт наличия userId)
-export const useWorkspace = (workspaceId: string, userId?: string) => {
+// 1. Получение пространства
+export const useWorkspace = (workspaceId: string) => {
   return useQuery({
     queryKey: ['workspace', workspaceId],
     queryFn: async () => {
@@ -15,12 +15,13 @@ export const useWorkspace = (workspaceId: string, userId?: string) => {
       if (error) throw error;
       return data;
     },
-    enabled: !!workspaceId && !!userId, // Не запрашиваем, пока пользователь не авторизован!
+    enabled: !!workspaceId,
+    retry: false,
   });
 };
 
 // 2. Получение участников
-export const useWorkspaceMembers = (workspaceId: string, userId?: string) => {
+export const useWorkspaceMembers = (workspaceId: string) => {
   return useQuery({
     queryKey: ['workspace_members', workspaceId],
     queryFn: async () => {
@@ -30,7 +31,7 @@ export const useWorkspaceMembers = (workspaceId: string, userId?: string) => {
           user_id,
           role,
           profiles (
-            full_name,
+            display_name,
             avatar_url
           )
         `)
@@ -48,12 +49,13 @@ export const useWorkspaceMembers = (workspaceId: string, userId?: string) => {
 
       return data;
     },
-    enabled: !!workspaceId && !!userId,
+    enabled: !!workspaceId,
+    retry: false,
   });
 };
 
 // 3. Получение продуктов
-export const useProducts = (workspaceId: string, userId?: string) => {
+export const useProducts = (workspaceId: string) => {
   return useQuery({
     queryKey: ['products', workspaceId],
     queryFn: async () => {
@@ -66,6 +68,7 @@ export const useProducts = (workspaceId: string, userId?: string) => {
       if (error) throw error;
       return data;
     },
-    enabled: !!workspaceId && !!userId,
+    enabled: !!workspaceId,
+    retry: false,
   });
 };

@@ -10,7 +10,7 @@ interface WorkspaceMember {
   user_id: string | null;
   role: string;
   profiles?: {
-    full_name?: string | null;
+    display_name?: string | null;
     avatar_url?: string | null;
   };
 }
@@ -22,16 +22,16 @@ interface WorkspaceProduct {
 }
 
 export const WorkspaceDetailsPage = () => {
-  const { id } = useParams<{ id: string }>();
+  const { workspaceId: routeWorkspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
   const { user, isLoading: isAuthLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('products');
 
-  const workspaceId = id ?? '';
+  const workspaceId = routeWorkspaceId ?? '';
   const { data: workspace, isLoading: isWsLoading, isError: isWsError, error: wsError } =
-    useWorkspace(workspaceId, user?.id);
-  const { data: members } = useWorkspaceMembers(workspaceId, user?.id);
-  const { data: products, isLoading: isProductsLoading } = useProducts(workspaceId, user?.id);
+    useWorkspace(workspaceId);
+  const { data: members } = useWorkspaceMembers(workspaceId);
+  const { data: products, isLoading: isProductsLoading } = useProducts(workspaceId);
 
   // Шапка с кнопкой «Назад» (используется для загрузки и ошибок)
   const BackHeader = () => (
@@ -48,7 +48,7 @@ export const WorkspaceDetailsPage = () => {
   );
 
   // 1. Состояние загрузки
-  if (isAuthLoading || !workspaceId || !user?.id || isWsLoading) {
+  if (isAuthLoading || !workspaceId || isWsLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
         <BackHeader />
@@ -186,7 +186,7 @@ export const WorkspaceDetailsPage = () => {
                 <div key={member.user_id} className="p-4 flex justify-between items-center">
                   <div>
                     <div className="font-medium text-gray-900">
-                      {member.profiles?.full_name || 'Пользователь'}
+                      {member.profiles?.display_name || 'Пользователь'}
                     </div>
                     <div className="text-xs text-gray-400">{member.user_id}</div>
                   </div>
