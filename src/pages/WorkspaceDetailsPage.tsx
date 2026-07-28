@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
-import { useWorkspace, useProducts, useWorkspaceMembers } from '../features/workspaces/api/useWorkspaceDetails';
+import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases } from '../features/workspaces/api/useWorkspaceDetails';
 
 
 type Tab = 'products' | 'releases' | 'members';
@@ -21,6 +21,20 @@ interface WorkspaceProduct {
   slug: string;
 }
 
+interface WorkspaceRelease {
+  id: string;
+  version: string;
+  title: string;
+  status: string;
+  planned_at?: string | null;
+  created_at?: string | null;
+  products?: {
+    id: string;
+    name: string;
+    workspace_id: string;
+  } | null;
+}
+
 export const WorkspaceDetailsPage = () => {
   const { workspaceId: routeWorkspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
@@ -31,7 +45,18 @@ export const WorkspaceDetailsPage = () => {
   const { data: workspace, isLoading: isWsLoading, isError: isWsError, error: wsError } =
     useWorkspace(workspaceId);
   const { data: members } = useWorkspaceMembers(workspaceId);
-  const { data: products, isLoading: isProductsLoading } = useProducts(workspaceId);
+  const {
+    data: products,
+    isLoading: isProductsLoading,
+    isError: isProductsError,
+    error: productsError,
+  } = useProducts(workspaceId);
+  const {
+    data: releases,
+    isLoading: isReleasesLoading,
+    isError: isReleasesError,
+    error: releasesError,
+  } = useWorkspaceReleases(workspaceId);
 
   // Шапка с кнопкой «Назад» (используется для загрузки и ошибок)
   const BackHeader = () => (
@@ -152,13 +177,26 @@ export const WorkspaceDetailsPage = () => {
 
             {isProductsLoading ? (
               <div className="h-24 bg-gray-200 animate-pulse rounded-xl" />
+            ) : isProductsError ? (
+              <div className="text-center py-8 bg-red-50 rounded-xl border border-red-200 text-red-700">
+                Ошибка загрузки продуктов.
+                {productsError && (
+                  <div className="mt-2 text-xs bg-red-100 p-3 rounded-lg font-mono text-red-900 overflow-x-auto">
+                    {(productsError as Error).message}
+                  </div>
+                )}
+              </div>
             ) : products && products.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {products.map((product: WorkspaceProduct) => (
-                  <div key={product.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                  <Link
+                    key={product.id}
+                    to={`/workspaces/${workspaceId}/products/${product.id}`}
+                    className="block bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition"
+                  >
                     <h3 className="font-bold text-gray-900">{product.name}</h3>
                     <p className="text-xs text-gray-400 mt-1">Slug: {product.slug}</p>
-                  </div>
+                  </Link>
                 ))}
               </div>
             ) : (
@@ -170,9 +208,57 @@ export const WorkspaceDetailsPage = () => {
         )}
 
         {activeTab === 'releases' && (
-          <div className="bg-white p-8 rounded-xl border border-gray-200 text-center">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Управление релизами</h3>
-            <p className="text-sm text-gray-500">Здесь будет отображаться список релизов.</p>
+          <div>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-bold text-gray-900">Список релизов</h2>
+            </div>
+
+            {isReleasesLoading ? (
+              <div className="h-24 bg-gray-200 animate-pulse rounded-xl" />
+            ) : isReleasesError ? (
+              <div className="text-center py-8 bg-red-50 rounded-xl border border-red-200 text-red-700">
+                Ошибка загрузки релизов.
+                {releasesError && (
+                  <div className="mt-2 text-xs bg-red-100 p-3 rounded-lg font-mono text-red-900 overflow-x-auto">
+                    {(releasesError as Error).message}
+                  </div>
+                )}
+              </div>
+            ) : releases && releases.length > 0 ? (
+              <div className="grid gap-4">
+                {releases.map((release: WorkspaceRelease) => (
+                  <Link
+                    key={release.id}
+                    to={`/workspaces/${workspaceId}/releases/${release.id}`}
+                    className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition"
+                  >
+                    <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-start">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-indigo-600">{release.version}</span>
+                          <span className="px-2 py-1 rounded-full text-[11px] font-semibold uppercase bg-gray-100 text-gray-700">
+                            {release.status}
+                          </span>
+                        </div>
+                        <h3 className="font-semibold text-gray-900 mt-2">{release.title}</h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                          Продукт: {release.products?.name ?? 'Неизвестно'}
+                        </p>
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {release.planned_at
+                          ? `Планируется: ${new Date(release.planned_at).toLocaleDateString('ru-RU')}`
+                          : 'Дата не указана'}
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 bg-white rounded-xl border border-dashed border-gray-300 text-gray-500">
+                В этом пространстве пока нет релизов
+              </div>
+            )}
           </div>
         )}
 

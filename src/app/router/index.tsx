@@ -5,6 +5,7 @@ import { RegisterPage } from '../../pages/RegisterPage';
 import { WorkspacesPage } from '../../pages/WorkspacesPage';
 import { WorkspaceDetailsPage } from '../../pages/WorkspaceDetailsPage';
 import { ReleaseDetailsPage } from '../../pages/ReleaseDetailsPage';
+import { ProductDetailsPage } from '../../pages/ProductDetailsPage';
 import { PublicReleaseNotesPage } from '../../pages/PublicReleaseNotesPage';
 import { NotFoundPage } from '../../pages/NotFoundPage';
 
@@ -21,6 +22,7 @@ export const AppRouter = () => {
         <Route element={<ProtectedRoute />}>
           <Route path="/workspaces" element={<WorkspacesPage />} />
           <Route path="/workspaces/:workspaceId" element={<WorkspaceDetailsPage />} />
+          <Route path="/workspaces/:workspaceId/products/:productId" element={<ProductDetailsPage />} />
           <Route path="/workspaces/:workspaceId/releases/:releaseId" element={<ReleaseDetailsPage />} />
         </Route>
 

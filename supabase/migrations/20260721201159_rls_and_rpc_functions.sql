@@ -76,6 +76,19 @@ CREATE POLICY "Members can view other members in same workspace"
     is_workspace_member(workspace_id, auth.uid())
   );
 
+DROP POLICY IF EXISTS "Members can view products in same workspace" ON products;
+CREATE POLICY "Members can view products in same workspace"
+ON public.products
+FOR SELECT
+TO authenticated
+USING (
+  workspace_id IN (
+    SELECT workspace_id
+    FROM public.workspace_members
+    WHERE user_id = auth.uid()
+  )
+);
+
 
 -- ========================================================
 -- 3. АТОМАРНЫЕ RPC ФУНКЦИИ
