@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
 import { CreateReleaseModal } from '../features/auth/ui/CreateReleaseModal';
-import { useProductDetails, useProductReleases } from '../features/workspaces/api/useWorkspaceDetails';
+import { useProductDetails, useProductReleases, useWorkspaceMembers } from '../features/workspaces/api/useWorkspaceDetails';
+import { useProductReleasesRealtime } from '../shared/api/useSupabaseRealtime';
 
 interface ProductRelease {
   id: string;
@@ -30,12 +31,19 @@ export const ProductDetailsPage = () => {
     error: productError,
   } = useProductDetails(resolvedProductId);
 
+  const { data: members } = useWorkspaceMembers(resolvedWorkspaceId);
+
+  const currentUserMember = members?.find((member: any) => member.user_id === user?.id);
+  const userRole = currentUserMember?.role ?? 'contributor';
+
   const {
     data: releases,
     isLoading: isReleasesLoading,
     isError: isReleasesError,
     error: releasesError,
   } = useProductReleases(resolvedProductId);
+
+  useProductReleasesRealtime(resolvedProductId);
 
   const BackHeader = () => (
     <header className="bg-white border-b border-gray-200">
@@ -101,12 +109,14 @@ export const ProductDetailsPage = () => {
 
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-gray-900">Релизы продукта</h2>
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 text-sm"
-          >
-            + Создать релиз
-          </button>
+          {userRole !== 'contributor' && (
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 text-sm"
+            >
+              + Создать релиз
+            </button>
+          )}
         </div>
 
         {isReleasesLoading ? (
