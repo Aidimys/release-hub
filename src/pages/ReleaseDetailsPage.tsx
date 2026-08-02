@@ -57,6 +57,7 @@ interface ReleaseCommentItem {
   user_id?: string | null;
   profiles?: {
     display_name?: string | null;
+    avatar_url?: string | null;
   } | null;
 }
 
@@ -888,7 +889,18 @@ export const ReleaseDetailsPage = () => {
                   {comments.map((comment: ReleaseCommentItem) => (
                     <div key={comment.id} className="rounded-xl border border-gray-200 p-3">
                       <div className="flex items-center justify-between text-sm text-gray-700">
-                        <span className="font-medium">{comment.profiles?.display_name ?? 'Пользователь'}</span>
+                        <div className="flex items-center gap-3">
+                          {comment.profiles?.avatar_url ? (
+                            <img
+                              src={comment.profiles.avatar_url}
+                              alt={`${comment.profiles?.display_name ?? 'Пользователь'} avatar`}
+                              className="h-8 w-8 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded-full bg-gray-200" />
+                          )}
+                          <span className="font-medium">{comment.profiles?.display_name ?? 'Пользователь'}</span>
+                        </div>
                         <span>{comment.created_at ? new Date(comment.created_at).toLocaleString('ru-RU') : '—'}</span>
                       </div>
                       <p className="text-sm text-gray-600 mt-2">{comment.content}</p>

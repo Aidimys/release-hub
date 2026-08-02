@@ -133,7 +133,7 @@ export const useReleaseComments = (releaseId: string) => {
           content,
           created_at,
           user_id,
-          profiles (display_name)
+          profiles (display_name, avatar_url)
         `)
         .eq('release_id', releaseId)
         .order('created_at', { ascending: false });

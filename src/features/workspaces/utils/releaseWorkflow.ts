@@ -53,6 +53,24 @@ export const validateReleaseForReview = ({
   };
 };
 
+type ReviewDecision = 'approved' | 'rejected' | 'pending';
+
+export const getReviewOutcome = (reviewers?: Array<{ decision?: string | null }> | null): ReviewDecision => {
+  if (!reviewers || reviewers.length === 0) {
+    return 'pending';
+  }
+
+  if (reviewers.some((reviewer) => reviewer.decision === 'rejected')) {
+    return 'rejected';
+  }
+
+  if (reviewers.every((reviewer) => reviewer.decision === 'approved')) {
+    return 'approved';
+  }
+
+  return 'pending';
+};
+
 export const canTransitionToStatus = (currentStatus: ReleaseStatus, nextStatus: ReleaseStatus) => {
   return allowedReleaseTransitions[currentStatus]?.includes(nextStatus) ?? false;
 };
