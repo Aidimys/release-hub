@@ -128,6 +128,13 @@ export const ProductDetailsPage = () => {
             <div className="text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2 flex flex-col gap-2">
               <div>Пользователь: {user?.email ?? 'неизвестно'}</div>
               <div>Ваша роль: {permissions.role}</div>
+              <button
+                type="button"
+                onClick={() => window.open(`/public/releases/${resolvedProductId}`, '_blank', 'noopener,noreferrer')}
+                className="px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              >
+                Открыть публичную страницу
+              </button>
             </div>
           </div>
         </div>

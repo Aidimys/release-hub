@@ -257,14 +257,15 @@ export const ReleaseDetailsPage = () => {
       }
     }
 
-    if (nextStatus === 'approved' && reviewers?.some((reviewer) => reviewer.decision === 'rejected')) {
-      setErrorText('Нельзя подтвердить релиз: есть голос против. Сначала отклоните или пересмотрите решение.');
-      return;
-    }
+    if (nextStatus === 'approved') {
+      const hasRejectedReviewer = reviewers?.some((reviewer) => reviewer.decision === 'rejected');
+      if (hasRejectedReviewer) {
+        setErrorText('Нельзя подтвердить релиз: есть голос против. Сначала отклоните или пересмотрите решение.');
+        return;
+      }
 
-    if (nextStatus === 'approved' && reviewers && reviewers.length > 0) {
-      const allApproved = reviewers.every((reviewer) => reviewer.decision === 'approved');
-      if (!allApproved) {
+      const hasPendingReviewer = reviewers?.some((reviewer) => reviewer.decision !== 'approved');
+      if (reviewers && reviewers.length > 0 && hasPendingReviewer) {
         setErrorText('Все назначенные согласующие должны проголосовать approve, прежде чем релиз станет approved');
         return;
       }
@@ -455,23 +456,6 @@ export const ReleaseDetailsPage = () => {
       });
       await queryClient.invalidateQueries({ queryKey: ['release_reviewers', resolvedReleaseId] });
       await queryClient.invalidateQueries({ queryKey: ['release_activity', resolvedReleaseId] });
-
-      const latestReviewers = await supabase
-        .from('release_reviewers')
-        .select('decision, user_id')
-        .eq('release_id', resolvedReleaseId);
-
-      if (!latestReviewers.error) {
-        const currentReviewers = latestReviewers.data ?? [];
-        const hasAnyReject = currentReviewers.some((reviewer) => reviewer.decision === 'rejected');
-        const allApproved = currentReviewers.length > 0 && currentReviewers.every((reviewer) => reviewer.decision === 'approved');
-
-        if (hasAnyReject) {
-          await handleStatusChange('rejected');
-        } else if (allApproved) {
-          await handleStatusChange('approved');
-        }
-      }
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось сохранить голос');
     }
