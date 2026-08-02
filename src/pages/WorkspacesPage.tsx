@@ -9,7 +9,7 @@ interface WorkspaceListItem {
   id: string;
   name: string;
   created_at: string;
-  workspace_members?: Array<{ role?: string }>;
+  workspace_members?: Array<{ role?: string; user_id?: string | null; }>;
 }
 
 export const WorkspacesPage = () => {
@@ -109,7 +109,10 @@ export const WorkspacesPage = () => {
         {!isLoading && !isError && normalizedWorkspaces.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {normalizedWorkspaces.map((workspace) => {
-              const role = workspace.workspace_members?.[0]?.role;
+              const currentUserMember = workspace.workspace_members?.find(
+                (member) => member.user_id === user?.id
+              );
+              const role = currentUserMember?.role ?? workspace.workspace_members?.[0]?.role;
               return (
                 <div
                   key={workspace.id}

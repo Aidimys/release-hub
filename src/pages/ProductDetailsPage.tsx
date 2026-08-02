@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
+import { useCancelPublishedRelease, useDeleteProduct, useDeleteRelease } from '../features/workspaces/api/useWorkspaceDetails';
+import { usePermissions } from '../features/workspaces/api/usePermissions';
 import { CreateReleaseModal } from '../features/auth/ui/CreateReleaseModal';
 import { useProductDetails, useProductReleases, useWorkspaceMembers } from '../features/workspaces/api/useWorkspaceDetails';
 import { useProductReleasesRealtime } from '../shared/api/useSupabaseRealtime';
@@ -32,9 +34,11 @@ export const ProductDetailsPage = () => {
   } = useProductDetails(resolvedProductId);
 
   const { data: members } = useWorkspaceMembers(resolvedWorkspaceId);
+  const permissions = usePermissions(members);
 
-  const currentUserMember = members?.find((member: any) => member.user_id === user?.id);
-  const userRole = currentUserMember?.role ?? 'contributor';
+  const deleteProduct = useDeleteProduct(resolvedWorkspaceId);
+  const deleteRelease = useDeleteRelease(resolvedWorkspaceId);
+  const cancelPublishedRelease = useCancelPublishedRelease(resolvedWorkspaceId);
 
   const {
     data: releases,
@@ -44,6 +48,26 @@ export const ProductDetailsPage = () => {
   } = useProductReleases(resolvedProductId);
 
   useProductReleasesRealtime(resolvedProductId);
+
+  const handleDeleteRelease = async (releaseId: string) => {
+    if (!window.confirm('Удалить релиз?')) return;
+
+    try {
+      await deleteRelease.mutateAsync(releaseId);
+    } catch (error) {
+      window.alert((error as Error)?.message || 'Не удалось удалить релиз');
+    }
+  };
+
+  const handleCancelPublishedRelease = async (releaseId: string) => {
+    if (!window.confirm('Отменить публикацию релиза?')) return;
+
+    try {
+      await cancelPublishedRelease.mutateAsync(releaseId);
+    } catch (error) {
+      window.alert((error as Error)?.message || 'Не удалось отменить публикацию релиза');
+    }
+  };
 
   const BackHeader = () => (
     <header className="bg-white border-b border-gray-200">
@@ -101,22 +125,38 @@ export const ProductDetailsPage = () => {
                 <p className="text-sm text-gray-600 mt-3">{product.description}</p>
               )}
             </div>
-            <div className="text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-              Пользователь: {user?.email ?? 'неизвестно'}
+            <div className="text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2 flex flex-col gap-2">
+              <div>Пользователь: {user?.email ?? 'неизвестно'}</div>
+              <div>Ваша роль: {permissions.role}</div>
             </div>
           </div>
         </div>
 
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-gray-900">Релизы продукта</h2>
-          {userRole !== 'contributor' && (
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 text-sm"
-            >
-              + Создать релиз
-            </button>
-          )}
+          <div className="flex gap-2">
+            {permissions.canCreateRelease && (
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 text-sm"
+              >
+                + Создать релиз
+              </button>
+            )}
+            {permissions.canDeleteProduct && (
+              <button
+                onClick={() => {
+                  if (window.confirm('Удалить продукт? Все связанные релизы и изменения тоже будут удалены.')) {
+                    deleteProduct.mutate(resolvedProductId);
+                  }
+                }}
+                disabled={deleteProduct.isPending}
+                className="px-4 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+              >
+                Удалить продукт
+              </button>
+            )}
+          </div>
         </div>
 
         {isReleasesLoading ? (
@@ -133,26 +173,64 @@ export const ProductDetailsPage = () => {
         ) : releases && releases.length > 0 ? (
           <div className="grid gap-4">
             {releases.map((release: ProductRelease) => (
-              <Link
-                key={release.id}
-                to={`/workspaces/${resolvedWorkspaceId}/releases/${release.id}`}
-                className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition"
-              >
+              <div key={release.id} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition">
                 <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-start">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-indigo-600">{release.version}</span>
-                      <span className="px-2 py-1 rounded-full text-[11px] font-semibold uppercase bg-gray-100 text-gray-700">
-                        {release.status}
-                      </span>
+                  <Link
+                    to={`/workspaces/${resolvedWorkspaceId}/releases/${release.id}`}
+                    className="flex-1 min-w-0"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-indigo-600">{release.version}</span>
+                        <span className="px-2 py-1 rounded-full text-[11px] font-semibold uppercase bg-gray-100 text-gray-700">
+                          {release.status}
+                        </span>
+                      </div>
+                      <h3 className="font-semibold text-gray-900 mt-2 truncate">{release.title}</h3>
                     </div>
-                    <h3 className="font-semibold text-gray-900 mt-2">{release.title}</h3>
-                  </div>
-                  <div className="text-sm text-gray-500">
-                    {release.planned_at ? `Планируется: ${new Date(release.planned_at).toLocaleDateString('ru-RU')}` : 'Дата не указана'}
+                  </Link>
+                  <div className="flex flex-col gap-2 md:items-end md:min-w-55">
+                    <div className="text-sm text-gray-500 text-left md:text-right">
+                      <div>
+                        {release.planned_at ? `Планируется: ${new Date(release.planned_at).toLocaleDateString('ru-RU')}` : 'Дата не указана'}
+                      </div>
+                      <div className="mt-1">
+                        {release.published_at
+                          ? `Опубликовано: ${new Date(release.published_at).toLocaleDateString('ru-RU')}`
+                          : 'Не опубликовано'}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 md:justify-end">
+                      {permissions.canCancelPublishedRelease && release.status === 'published' && (
+                        <button
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void handleCancelPublishedRelease(release.id);
+                          }}
+                          disabled={cancelPublishedRelease.isPending}
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50"
+                        >
+                          Отменить публикацию
+                        </button>
+                      )}
+                      {permissions.canDeleteRelease && (
+                        <button
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void handleDeleteRelease(release.id);
+                          }}
+                          disabled={deleteRelease.isPending}
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                        >
+                          Удалить
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         ) : (

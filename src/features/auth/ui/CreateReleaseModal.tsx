@@ -52,8 +52,8 @@ export const CreateReleaseModal = ({ isOpen, onClose, productId }: Props) => {
 
       reset();
       onClose();
-    } catch (err: any) {
-      setErrorText(err.message || 'Не удалось создать релиз');
+    } catch (error: unknown) {
+      setErrorText(error instanceof Error ? error.message : 'Не удалось создать релиз');
     }
   };
 

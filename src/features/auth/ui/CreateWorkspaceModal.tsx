@@ -43,8 +43,8 @@ export const CreateWorkspaceModal = ({ isOpen, onClose }: Props) => {
       });
       reset();
       onClose();
-    } catch (err: any) {
-      setErrorText(err.message || 'Не удалось создать рабочее пространство');
+    } catch (error: unknown) {
+      setErrorText(error instanceof Error ? error.message : 'Не удалось создать рабочее пространство');
     }
   };
 

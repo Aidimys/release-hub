@@ -43,8 +43,8 @@ export const EditWorkspaceModal = ({ isOpen, currentName, onClose, onSubmit }: P
     try {
       await onSubmit(data.name);
       onClose();
-    } catch (error: any) {
-      setErrorText(error?.message || 'Не удалось обновить рабочее пространство');
+    } catch (error: unknown) {
+      setErrorText(error instanceof Error ? error.message : 'Не удалось обновить рабочее пространство');
     }
   };
 

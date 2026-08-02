@@ -12,7 +12,7 @@ export const useWorkspaces = () => {
           id,
           name,
           created_at,
-          workspace_members!inner (role)`)
+          workspace_members!inner (user_id, role)`)
         .order('created_at', { ascending: false });
 
       if (error) {

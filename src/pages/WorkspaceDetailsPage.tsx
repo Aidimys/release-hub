@@ -1,21 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
-import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases } from '../features/workspaces/api/useWorkspaceDetails';
+import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, type WorkspaceMember } from '../features/workspaces/api/useWorkspaceDetails';
+import { usePermissions } from '../features/workspaces/api/usePermissions';
 import { useWorkspaceRealtime } from '../shared/api/useSupabaseRealtime';
 import { supabase } from '../shared/api/supabase';
 
 
 type Tab = 'products' | 'releases' | 'members';
-
-interface WorkspaceMember {
-  user_id: string | null;
-  role: string;
-  profiles?: {
-    display_name?: string | null;
-    avatar_url?: string | null;
-  };
-}
 
 interface WorkspaceProduct {
   id: string;
@@ -30,6 +22,7 @@ interface WorkspaceRelease {
   status: string;
   planned_at?: string | null;
   created_at?: string | null;
+  published_at?: string | null;
   products?: {
     id: string;
     name: string;
@@ -67,6 +60,12 @@ export const WorkspaceDetailsPage = () => {
     error: releasesError,
   } = useWorkspaceReleases(workspaceId);
 
+  const deleteProduct = useDeleteProduct(workspaceId);
+  const deleteRelease = useDeleteRelease(workspaceId);
+  const cancelPublishedRelease = useCancelPublishedRelease(workspaceId);
+
+  const permissions = usePermissions(members);
+
   const statusFilter = searchParams.get('status') ?? 'all';
   const searchFilter = searchParams.get('search') ?? '';
   const sortOrder = searchParams.get('sort') ?? 'date-desc';
@@ -93,7 +92,7 @@ export const WorkspaceDetailsPage = () => {
   }, [releases, searchFilter, sortOrder, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredReleases.length / pageSize));
-  const safePage = Math.min(page, totalPages);
+  const safePage = Math.min(Number.isFinite(page) ? page : 1, totalPages);
   const pagedReleases = filteredReleases.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const updateParams = (next: Record<string, string | null>) => {
@@ -114,7 +113,121 @@ export const WorkspaceDetailsPage = () => {
     setSearchParams(params);
   };
 
-  // 1. Состояние загрузки
+  const ownerCount = useMemo(() => {
+    return members?.filter((m) => m.role === 'owner').length ?? 0;
+  }, [members]);
+
+  const isLastOwner = useMemo(() => {
+    if (!user?.id) return false;
+    const currentMember = members?.find((m) => m.user_id === user.id);
+    return currentMember?.role === 'owner' && ownerCount <= 1;
+  }, [user, members, ownerCount]);
+
+  const handleInviteMember = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!memberEmail.trim()) return;
+
+    setMemberError(null);
+    setMemberSuccess(null);
+
+    try {
+      const { data: profile, error: profileError } = await supabase.rpc('find_profile_by_email', {
+        email_input: memberEmail.trim(),
+      });
+
+      if (profileError) throw new Error(profileError.message);
+      const profiles = profile as Array<{ id: string }> | null | undefined;
+      const invitedUserId = profiles?.[0]?.id;
+      if (!invitedUserId) {
+        setMemberError('Пользователь не найден по email');
+        return;
+      }
+
+      const { error } = await supabase.rpc('invite_member', {
+        p_workspace_id: workspaceId,
+        p_email: memberEmail.trim(),
+        p_role: memberRole,
+      });
+
+      if (error) throw new Error(error.message);
+
+      setMemberEmail('');
+      setMemberRole('contributor');
+      setMemberSuccess('Участник приглашён');
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось приглашить участника');
+    }
+  };
+
+  const handleMemberRoleChange = async (memberUserId: string | null, nextRole: 'owner' | 'maintainer' | 'contributor') => {
+    if (!memberUserId) return;
+
+    const targetMember = members?.find((member) => member.user_id === memberUserId);
+    if (targetMember?.role === 'owner' && nextRole !== 'owner' && isLastOwner) {
+      setMemberError('Нельзя понизить роль последнего owner');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.rpc('change_member_role', {
+        p_workspace_id: workspaceId,
+        p_target_user_id: memberUserId,
+        p_new_role: nextRole,
+      });
+
+      if (error) throw new Error(error.message);
+      setMemberError(null);
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось обновить роль');
+    }
+  };
+
+  const handleRemoveMember = async (memberUserId: string | null) => {
+    if (!memberUserId) return;
+
+    const targetMember = members?.find((member) => member.user_id === memberUserId);
+    if (targetMember?.role === 'owner' && isLastOwner) {
+      setMemberError('Нельзя удалить последнего owner');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.rpc('remove_member', {
+        p_workspace_id: workspaceId,
+        p_target_user_id: memberUserId,
+      });
+
+      if (error) throw new Error(error.message);
+      setMemberError(null);
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось удалить участника');
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    try {
+      await deleteProduct.mutateAsync(productId);
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось удалить продукт');
+    }
+  };
+
+  const handleDeleteRelease = async (releaseId: string) => {
+    try {
+      await deleteRelease.mutateAsync(releaseId);
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось удалить релиз');
+    }
+  };
+
+  const handleCancelPublishedRelease = async (releaseId: string) => {
+    try {
+      await cancelPublishedRelease.mutateAsync(releaseId);
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось отменить релиз');
+    }
+  };
+
   if (isAuthLoading || !workspaceId || isWsLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -135,7 +248,6 @@ export const WorkspaceDetailsPage = () => {
     );
   }
 
-  // 2. Состояние ошибки (С шапкой и кнопкой назад)
   if (isWsError || !workspace) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -166,103 +278,8 @@ export const WorkspaceDetailsPage = () => {
     );
   }
 
-  // Определяем роль текущего пользователя
-  const currentUserMember = members?.find(
-    (member: WorkspaceMember) => member.user_id === user?.id
-  );
-  const userRole = currentUserMember?.role || 'contributor';
-
-  const handleInviteMember = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!memberEmail.trim()) return;
-
-    if (userRole !== 'owner' && userRole !== 'maintainer') {
-      setMemberError('Только owner и maintainer могут приглашать участников');
-      return;
-    }
-
-    setMemberError(null);
-    setMemberSuccess(null);
-
-    try {
-      const { data: profile, error: profileError } = await supabase.rpc('find_profile_by_email', {
-        email_input: memberEmail.trim(),
-      });
-
-      if (profileError) throw new Error(profileError.message);
-      const profiles = profile as Array<{ id: string }> | null | undefined;
-      const invitedUserId = profiles?.[0]?.id;
-      if (!invitedUserId) {
-        setMemberError('Пользователь не найден по email');
-        return;
-      }
-
-      if (memberRole === 'owner') {
-        setMemberError('Приглашённый пользователь не может быть owner');
-        return;
-      }
-
-      const { error } = await supabase.from('workspace_members').insert({
-        workspace_id: workspaceId,
-        user_id: invitedUserId,
-        role: memberRole,
-      });
-
-      if (error) throw new Error(error.message);
-      setMemberEmail('');
-      setMemberRole('contributor');
-      setMemberSuccess('Участник добавлен');
-    } catch (err) {
-      setMemberError((err as Error)?.message || 'Не удалось добавить участника');
-    }
-  };
-
-  const handleMemberRoleChange = async (memberUserId: string | null, nextRole: 'owner' | 'maintainer' | 'contributor') => {
-    if (!memberUserId) return;
-
-    const targetMember = members?.find((member: WorkspaceMember) => member.user_id === memberUserId);
-    if (userRole !== 'owner' && nextRole === 'owner') {
-      setMemberError('Только owner может назначать роль owner');
-      return;
-    }
-
-    if (userRole !== 'owner' && targetMember?.role === 'owner') {
-      setMemberError('Только owner может изменять роль owner');
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('workspace_members')
-        .update({ role: nextRole })
-        .eq('workspace_id', workspaceId)
-        .eq('user_id', memberUserId);
-
-      if (error) throw new Error(error.message);
-    } catch (err) {
-      setMemberError((err as Error)?.message || 'Не удалось обновить роль');
-    }
-  };
-
-  const handleRemoveMember = async (memberUserId: string | null) => {
-    if (!memberUserId) return;
-
-    try {
-      const { error } = await supabase
-        .from('workspace_members')
-        .delete()
-        .eq('workspace_id', workspaceId)
-        .eq('user_id', memberUserId);
-
-      if (error) throw new Error(error.message);
-    } catch (err) {
-      setMemberError((err as Error)?.message || 'Не удалось удалить участника');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Шапка пространства */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-4 py-4">
           <button
@@ -277,13 +294,12 @@ export const WorkspaceDetailsPage = () => {
               <p className="text-xs text-gray-500">ID: {workspace.id}</p>
             </div>
             <span className="px-3 py-1 bg-indigo-100 text-indigo-800 font-semibold text-xs rounded-full uppercase">
-              Ваша роль: {userRole}
+              Ваша роль: {permissions.role}
             </span>
           </div>
         </div>
       </header>
 
-      {/* Переключатель вкладок */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-4 flex gap-8">
           {(['products', 'releases', 'members'] as Tab[]).map((tab) => {
@@ -301,7 +317,7 @@ export const WorkspaceDetailsPage = () => {
                   activeTab === tab
                     ? 'border-indigo-600 text-indigo-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 {labels[tab]}
               </button>
@@ -310,13 +326,19 @@ export const WorkspaceDetailsPage = () => {
         </div>
       </div>
 
-      {/* Содержимое вкладок */}
       <main className="max-w-6xl mx-auto px-4 py-8">
+        {memberError && (
+          <div className="mb-4 p-3 text-sm text-red-700 bg-red-100 rounded-lg">{memberError}</div>
+        )}
+        {memberSuccess && (
+          <div className="mb-4 p-3 text-sm text-green-700 bg-green-100 rounded-lg">{memberSuccess}</div>
+        )}
+
         {activeTab === 'products' && (
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-bold text-gray-900">Список продуктов</h2>
-              {(userRole === 'owner' || userRole === 'maintainer') && (
+              {permissions.canCreateProduct && (
                 <button className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 text-sm">
                   + Добавить продукт
                 </button>
@@ -337,14 +359,21 @@ export const WorkspaceDetailsPage = () => {
             ) : products && products.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {products.map((product: WorkspaceProduct) => (
-                  <Link
-                    key={product.id}
-                    to={`/workspaces/${workspaceId}/products/${product.id}`}
-                    className="block bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition"
-                  >
-                    <h3 className="font-bold text-gray-900">{product.name}</h3>
-                    <p className="text-xs text-gray-400 mt-1">Slug: {product.slug}</p>
-                  </Link>
+                  <div key={product.id} className="block bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition">
+                    <Link to={`/workspaces/${workspaceId}/products/${product.id}`}>
+                      <h3 className="font-bold text-gray-900">{product.name}</h3>
+                      <p className="text-xs text-gray-400 mt-1">Slug: {product.slug}</p>
+                    </Link>
+                    {permissions.canDeleteProduct && (
+                      <button
+                        onClick={() => handleDeleteProduct(product.id)}
+                        disabled={deleteProduct.isPending}
+                        className="mt-3 px-3 py-1 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                      >
+                        Удалить
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             ) : (
@@ -374,7 +403,7 @@ export const WorkspaceDetailsPage = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="bg-white rounded-xl border border-gray-200 p-4 grid gap-3 md:grid-cols-4">
+                <div className="bg-white rounded-xl border border-gray-200 p-4 grid gap-3 md:grid-cols-[1.2fr_0.8fr_0.8fr_auto]">
                   <input
                     type="text"
                     value={searchFilter}
@@ -413,31 +442,56 @@ export const WorkspaceDetailsPage = () => {
                 {filteredReleases.length > 0 ? (
                   <div className="grid gap-4">
                     {pagedReleases.map((release: WorkspaceRelease) => (
-                      <Link
-                        key={release.id}
-                        to={`/workspaces/${workspaceId}/releases/${release.id}`}
-                        className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition"
-                      >
-                        <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-start">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-indigo-600">{release.version}</span>
-                              <span className="px-2 py-1 rounded-full text-[11px] font-semibold uppercase bg-gray-100 text-gray-700">
-                                {release.status}
-                              </span>
+                      <div key={release.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition">
+                        <Link to={`/workspaces/${workspaceId}/releases/${release.id}`}>
+                          <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-start">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-indigo-600">{release.version}</span>
+                                <span className="px-2 py-1 rounded-full text-[11px] font-semibold uppercase bg-gray-100 text-gray-700">
+                                  {release.status}
+                                </span>
+                              </div>
+                              <h3 className="font-semibold text-gray-900 mt-2">{release.title}</h3>
+                              <p className="text-sm text-gray-500 mt-1">
+                                Продукт: {release.products?.name ?? 'Неизвестно'}
+                              </p>
                             </div>
-                            <h3 className="font-semibold text-gray-900 mt-2">{release.title}</h3>
-                            <p className="text-sm text-gray-500 mt-1">
-                              Продукт: {release.products?.name ?? 'Неизвестно'}
-                            </p>
+                            <div className="text-sm text-gray-500 text-left md:text-right">
+                              <div>
+                                {release.planned_at
+                                  ? `Планируется: ${new Date(release.planned_at).toLocaleDateString('ru-RU')}`
+                                  : 'Дата не указана'}
+                              </div>
+                              <div className="mt-1">
+                                {release.published_at
+                                  ? `Опубликовано: ${new Date(release.published_at).toLocaleDateString('ru-RU')}`
+                                  : 'Не опубликовано'}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-sm text-gray-500">
-                            {release.planned_at
-                              ? `Планируется: ${new Date(release.planned_at).toLocaleDateString('ru-RU')}`
-                              : 'Дата не указана'}
-                          </div>
+                        </Link>
+                        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
+                          {permissions.canDeleteRelease && (
+                            <button
+                              onClick={() => handleDeleteRelease(release.id)}
+                              disabled={deleteRelease.isPending}
+                              className="px-3 py-1 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                            >
+                              Удалить
+                            </button>
+                          )}
+                          {permissions.canCancelPublishedRelease && release.status === 'published' && (
+                            <button
+                              onClick={() => handleCancelPublishedRelease(release.id)}
+                              disabled={cancelPublishedRelease.isPending}
+                              className="px-3 py-1 text-xs font-medium text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-50"
+                            >
+                              Отменить публикацию
+                            </button>
+                          )}
                         </div>
-                      </Link>
+                      </div>
                     ))}
                   </div>
                 ) : (
@@ -474,14 +528,12 @@ export const WorkspaceDetailsPage = () => {
 
         {activeTab === 'members' && (
           <div className="space-y-4">
-            {(userRole === 'owner' || userRole === 'maintainer') ? (
+            {permissions.canManageMembers ? (
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="p-4 border-b border-gray-200 font-bold text-gray-900">
                   Пригласить участника
                 </div>
                 <form onSubmit={handleInviteMember} className="p-4 space-y-3">
-                  {memberError && <div className="text-sm text-red-700 bg-red-100 rounded-lg p-3">{memberError}</div>}
-                  {memberSuccess && <div className="text-sm text-green-700 bg-green-100 rounded-lg p-3">{memberSuccess}</div>}
                   <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr_auto]">
                     <input
                       value={memberEmail}
@@ -521,18 +573,32 @@ export const WorkspaceDetailsPage = () => {
                         {member.profiles?.display_name || 'Пользователь'}
                       </div>
                       <div className="text-xs text-gray-400">{member.user_id}</div>
+                      {member.invited_email && (
+                        <div className="text-xs text-gray-400">Приглашён: {member.invited_email}</div>
+                      )}
+                      {member.status && member.status !== 'active' && (
+                        <div className="text-xs text-gray-400">Статус: {member.status}</div>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <select
-                        value={member.role}
-                        onChange={(event) => handleMemberRoleChange(member.user_id, event.target.value as 'owner' | 'maintainer' | 'contributor')}
-                        className="px-2 py-1 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        disabled={member.role === 'owner' && userRole !== 'owner'}
-                      >
-                        <option value="contributor">Contributor</option>
-                        <option value="maintainer">Maintainer</option>
-                        {userRole === 'owner' && <option value="owner">Owner</option>}
-                      </select>
+                      {member.user_id !== user?.id && permissions.role === 'owner' && (
+                        <select
+                          value={member.role}
+                          onChange={(event) => handleMemberRoleChange(member.user_id, event.target.value as 'owner' | 'maintainer' | 'contributor')}
+                          className="px-2 py-1 border border-gray-300 rounded-lg text-sm text-gray-900"
+                          disabled={member.role === 'owner' && permissions.role !== 'owner'}
+                        >
+                          <option value="contributor">Contributor</option>
+                          <option value="maintainer">Maintainer</option>
+                          <option value="owner">Owner</option>
+                        </select>
+                      )}
+                      {member.user_id !== user?.id && permissions.role !== 'owner' && (
+                        <span className="text-sm text-gray-500 px-2 py-1">{member.role}</span>
+                      )}
+                      {member.user_id === user?.id && (
+                        <span className="text-sm text-gray-500 px-2 py-1">{member.role}</span>
+                      )}
                       <button
                         onClick={() => handleRemoveMember(member.user_id)}
                         className="px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700"

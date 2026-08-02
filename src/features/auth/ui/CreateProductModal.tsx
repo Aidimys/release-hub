@@ -62,8 +62,8 @@ export const CreateProductModal = ({ isOpen, onClose, workspaceId }: Props) => {
       });
       reset();
       onClose();
-    } catch (err: any) {
-      setErrorText(err.message || 'Не удалось создать продукт');
+    } catch (error: unknown) {
+      setErrorText(error instanceof Error ? error.message : 'Не удалось создать продукт');
     }
   };
 
