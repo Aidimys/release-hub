@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
-import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, type WorkspaceMember } from '../features/workspaces/api/useWorkspaceDetails';
+import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useWorkspaceActivity, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, type WorkspaceMember } from '../features/workspaces/api/useWorkspaceDetails';
 import { usePermissions } from '../features/workspaces/api/usePermissions';
 import { useWorkspaceRealtime } from '../shared/api/useSupabaseRealtime';
 import { supabase } from '../shared/api/supabase';
 
 
-type Tab = 'products' | 'releases' | 'members';
+type Tab = 'products' | 'releases' | 'members' | 'activity';
 
 interface WorkspaceProduct {
   id: string;
@@ -29,6 +29,23 @@ interface WorkspaceRelease {
     workspace_id: string;
   } | null;
   [key: string]: unknown;
+}
+
+interface WorkspaceActivityItem {
+  id: string;
+  event_type?: string | null;
+  created_at?: string | null;
+  payload?: unknown;
+  profiles?: {
+    display_name?: string | null;
+  } | null;
+  releases?: {
+    title?: string | null;
+    version?: string | null;
+    products?: {
+      name?: string | null;
+    } | null;
+  } | null;
 }
 
 export const WorkspaceDetailsPage = () => {
@@ -59,6 +76,10 @@ export const WorkspaceDetailsPage = () => {
     isError: isReleasesError,
     error: releasesError,
   } = useWorkspaceReleases(workspaceId);
+  const {
+    data: activity,
+    isLoading: isActivityLoading,
+  } = useWorkspaceActivity(workspaceId);
 
   const deleteProduct = useDeleteProduct(workspaceId);
   const deleteRelease = useDeleteRelease(workspaceId);
@@ -302,11 +323,12 @@ export const WorkspaceDetailsPage = () => {
 
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-4 flex gap-8">
-          {(['products', 'releases', 'members'] as Tab[]).map((tab) => {
+          {(['products', 'releases', 'members', 'activity'] as Tab[]).map((tab) => {
             const labels: Record<Tab, string> = {
               products: 'Продукты',
               releases: 'Релизы',
               members: 'Участники',
+              activity: 'Журнал активности',
             };
 
             return (
@@ -521,6 +543,48 @@ export const WorkspaceDetailsPage = () => {
                     </button>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'activity' && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-bold text-gray-900">Журнал активности</h2>
+            </div>
+
+            {isActivityLoading ? (
+              <div className="h-24 bg-gray-200 animate-pulse rounded-xl" />
+            ) : activity && activity.length > 0 ? (
+              <div className="space-y-3">
+                {activity.map((item: WorkspaceActivityItem) => {
+                  const payload = (item.payload && typeof item.payload === 'object' && !Array.isArray(item.payload)
+                    ? item.payload as Record<string, unknown>
+                    : {}) as Record<string, unknown>;
+                  const actorName = item.profiles?.display_name || 'Пользователь';
+                  const releaseTitle = item.releases?.title || 'релиз';
+                  const releaseVersion = item.releases?.version ? ` ${item.releases.version}` : '';
+                  const productName = item.releases?.products?.name ? ` (${item.releases.products.name})` : '';
+                  const fromValue = typeof payload.from === 'string' ? payload.from : null;
+                  const toValue = typeof payload.to === 'string' ? payload.to : null;
+                  const message = fromValue && toValue
+                    ? `${actorName}: ${releaseTitle}${releaseVersion}${productName} → ${toValue}`
+                    : `${actorName}: ${releaseTitle}${releaseVersion}${productName}`;
+
+                  return (
+                    <div key={item.id} className="rounded-xl border border-gray-200 p-3">
+                      <div className="text-sm font-medium text-gray-900">{message}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {item.created_at ? new Date(item.created_at).toLocaleString('ru-RU') : '—'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-300 text-gray-500">
+                В этом пространстве пока нет событий журнала
               </div>
             )}
           </div>

@@ -157,7 +157,42 @@ export const useWorkspaceReleases = (workspaceId: string) => {
   });
 };
 
-// 7. Удаление продукта
+// 7. Получение журнала активности рабочего пространства
+export const useWorkspaceActivity = (workspaceId: string) => {
+  return useQuery({
+    queryKey: ['workspace_activity', workspaceId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('activity_events')
+        .select(`
+          id,
+          created_at,
+          event_type,
+          payload,
+          release_id,
+          actor_id,
+          profiles!activity_events_actor_id_fkey (display_name),
+          releases!activity_events_release_id_fkey (
+            id,
+            title,
+            version,
+            product_id,
+            products (id, name)
+          )
+        `)
+        .eq('workspace_id', workspaceId)
+        .eq('event_type', 'status_changed')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!workspaceId,
+    retry: false,
+  });
+};
+
+// 8. Удаление продукта
 export const useDeleteProduct = (workspaceId: string) => {
   const queryClient = useQueryClient();
 

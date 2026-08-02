@@ -65,6 +65,16 @@ interface ReleaseActivityItem {
   event_type?: string | null;
   created_at?: string | null;
   payload?: unknown;
+  profiles?: {
+    display_name?: string | null;
+  } | null;
+  releases?: {
+    title?: string | null;
+    version?: string | null;
+    products?: {
+      name?: string | null;
+    } | null;
+  } | null;
 }
 
 interface ReleaseRecord {
@@ -108,6 +118,7 @@ export const ReleaseDetailsPage = () => {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
   const [isReviewersModalOpen, setIsReviewersModalOpen] = useState(false);
+  const [isActivityCollapsed, setIsActivityCollapsed] = useState(false);
   const [optimisticReleaseStatus, setOptimisticReleaseStatus] = useState<'draft' | 'review' | 'approved' | 'rejected' | 'published' | null>(null);
 
   const resolvedWorkspaceId = workspaceId ?? '';
@@ -211,6 +222,16 @@ export const ReleaseDetailsPage = () => {
         position: orderedChanges.length,
         createdBy: user?.id ?? null,
       });
+
+      if (user?.id) {
+        await supabase.from('activity_events').insert({
+          workspace_id: resolvedWorkspaceId,
+          release_id: resolvedReleaseId,
+          actor_id: user.id,
+          event_type: 'change_added',
+          payload: { message: 'Добавлено изменение' },
+        });
+      }
 
       if (releaseStatus === 'rejected') {
         await handleStatusChange('draft', { skipPermissionCheck: true });
@@ -759,12 +780,12 @@ export const ReleaseDetailsPage = () => {
           <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-900">Изменения релиза</h2>
-              <p className="text-sm text-gray-500">
-                {canReorderChanges
-                  ? 'Перетаскивайте элементы, чтобы задать новый порядок отображения.'
-                  : 'Порядок изменений можно менять только в статусе draft.'}
-              </p>
             </div>
+            <p className="text-sm text-gray-500 mb-4">
+              {canReorderChanges
+                ? 'Перетаскивайте элементы, чтобы задать новый порядок отображения.'
+                : 'Порядок изменений можно менять только в статусе draft.'}
+            </p>
 
           {isChangesLoading ? (
             <div className="h-24 bg-gray-200 animate-pulse rounded-xl" />
@@ -888,31 +909,46 @@ export const ReleaseDetailsPage = () => {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
-              <h2 className="text-lg font-bold text-gray-900 mb-4">Журнал действий</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">Журнал действий</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsActivityCollapsed((value) => !value)}
+                  className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                >
+                  {isActivityCollapsed ? 'Развернуть' : 'Свернуть'}
+                </button>
+              </div>
               {isActivityLoading ? (
                 <div className="h-16 bg-gray-200 animate-pulse rounded-xl" />
-              ) : activity && activity.length > 0 ? (
+              ) : activity && activity.length > 0 && !isActivityCollapsed ? (
                 <div className="space-y-3">
                   {activity.map((item: ReleaseActivityItem) => {
                     const payload = (item.payload && typeof item.payload === 'object' && !Array.isArray(item.payload)
                       ? item.payload as Record<string, unknown>
                       : {}) as Record<string, unknown>;
-                    const message = typeof payload.message === 'string' ? payload.message : `${item.event_type ?? 'event'}`;
+                    const actorName = item.profiles?.display_name || 'Пользователь';
                     const fromValue = typeof payload.from === 'string' ? payload.from : null;
                     const toValue = typeof payload.to === 'string' ? payload.to : null;
+                    const message = item.event_type === 'status_changed'
+                      ? fromValue && toValue
+                        ? `${actorName}: ${fromValue} → ${toValue}`
+                        : `${actorName}: статус изменён`
+                      : item.event_type === 'vote_submitted'
+                        ? `${actorName}: голос ${payload.decision === 'approved' ? 'за' : 'против'}`
+                        : `${actorName}: добавлено изменение`;
                     return (
                       <div key={item.id} className="rounded-xl border border-gray-200 p-3">
                         <div className="text-sm font-medium text-gray-900">{message}</div>
                         <div className="text-xs text-gray-500 mt-1">{item.created_at ? new Date(item.created_at).toLocaleString('ru-RU') : '—'}</div>
-                        {fromValue && toValue && (
-                          <div className="text-xs text-gray-500 mt-1">{fromValue} → {toValue}</div>
-                        )}
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500">Событий ещё нет.</p>
+                <p className="text-sm text-gray-500">
+                  {isActivityCollapsed ? 'Список логов скрыт' : 'Событий ещё нет.'}
+                </p>
               )}
             </div>
           </div>

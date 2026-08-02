@@ -152,8 +152,23 @@ export const useReleaseActivity = (releaseId: string) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_events')
-        .select('*')
+        .select(`
+          id,
+          created_at,
+          event_type,
+          payload,
+          actor_id,
+          profiles!activity_events_actor_id_fkey (display_name),
+          releases!activity_events_release_id_fkey (
+            id,
+            title,
+            version,
+            product_id,
+            products (id, name)
+          )
+        `)
         .eq('release_id', releaseId)
+        .eq('event_type', 'status_changed')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
