@@ -17,6 +17,20 @@ interface ProductRelease {
   created_at?: string | null;
 }
 
+const BackHeader = ({ onBack }: { onBack: () => void }) => (
+  <header className="bg-white border-b border-gray-200">
+    <div className="max-w-6xl mx-auto px-4 py-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1 transition"
+      >
+        ← Назад к пространству
+      </button>
+    </div>
+  </header>
+);
+
 export const ProductDetailsPage = () => {
   const { workspaceId, productId } = useParams<{ workspaceId: string; productId: string }>();
   const navigate = useNavigate();
@@ -69,23 +83,11 @@ export const ProductDetailsPage = () => {
     }
   };
 
-  const BackHeader = () => (
-    <header className="bg-white border-b border-gray-200">
-      <div className="max-w-6xl mx-auto px-4 py-4">
-        <button
-          onClick={() => navigate(`/workspaces/${resolvedWorkspaceId}`)}
-          className="text-sm text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1 transition"
-        >
-          ← Назад к пространству
-        </button>
-      </div>
-    </header>
-  );
 
   if (isAuthLoading || !resolvedWorkspaceId || !resolvedProductId || isProductLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <BackHeader />
+        <BackHeader onBack={() => navigate(`/workspaces/${resolvedWorkspaceId}`)} />
         <div className="p-8 text-center text-gray-500 font-medium">Загрузка продукта...</div>
       </div>
     );
@@ -94,7 +96,7 @@ export const ProductDetailsPage = () => {
   if (isProductError || !product) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <BackHeader />
+        <BackHeader onBack={() => navigate(`/workspaces/${resolvedWorkspaceId}`)} />
         <main className="max-w-6xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 text-red-700 p-6 rounded-xl shadow-sm">
             <h2 className="text-lg font-bold mb-1">Ошибка загрузки продукта</h2>
@@ -112,7 +114,7 @@ export const ProductDetailsPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <BackHeader />
+      <BackHeader onBack={() => navigate(`/workspaces/${resolvedWorkspaceId}`)} />
 
       <main className="max-w-6xl mx-auto px-4 py-8">
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 mb-6">

@@ -29,7 +29,10 @@ describe('ProtectedRoute', () => {
   });
 
   it('renders protected content when authenticated', () => {
-    mockedUseAuth.mockReturnValue({ session: { user: { id: 'u1' } } as any, isLoading: false });
+    mockedUseAuth.mockReturnValue({
+      session: { user: { id: 'u1' } } as { user: { id: string } },
+      isLoading: false,
+    });
 
     render(
       <MemoryRouter initialEntries={['/workspaces']}>

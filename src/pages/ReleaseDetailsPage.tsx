@@ -109,6 +109,20 @@ const getErrorMessage = (error: unknown): string => {
   return 'Неизвестная ошибка';
 };
 
+const BackHeader = ({ onBack, label }: { onBack: () => void; label: string }) => (
+  <header className="bg-white border-b border-gray-200">
+    <div className="max-w-6xl mx-auto px-4 py-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1 transition"
+      >
+        ← {label}
+      </button>
+    </div>
+  </header>
+);
+
 export const ReleaseDetailsPage = () => {
   const { workspaceId, releaseId } = useParams<{ workspaceId: string; releaseId: string }>();
   const navigate = useNavigate();
@@ -176,12 +190,6 @@ export const ReleaseDetailsPage = () => {
   };
 
   useReleaseRealtime(resolvedReleaseId, resolvedWorkspaceId);
-
-  useEffect(() => {
-    if (optimisticReleaseStatus && release?.status && release.status !== optimisticReleaseStatus) {
-      setOptimisticReleaseStatus(null);
-    }
-  }, [optimisticReleaseStatus, release?.status]);
 
   useEffect(() => {
     if (release?.id) {
@@ -547,23 +555,11 @@ export const ReleaseDetailsPage = () => {
     ? `/workspaces/${resolvedWorkspaceId}/products/${release.products.id}`
     : `/workspaces/${resolvedWorkspaceId}`;
 
-  const BackHeader = () => (
-    <header className="bg-white border-b border-gray-200">
-      <div className="max-w-6xl mx-auto px-4 py-4">
-        <button
-          onClick={() => navigate(backTarget)}
-          className="text-sm text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1 transition"
-        >
-          ← {release?.products?.id ? 'Назад к продукту' : 'Назад к пространству'}
-        </button>
-      </div>
-    </header>
-  );
 
   if (isAuthLoading || !resolvedWorkspaceId || !resolvedReleaseId || isReleaseLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <BackHeader />
+        <BackHeader onBack={() => navigate(backTarget)} label={release?.products?.id ? 'Назад к продукту' : 'Назад к пространству'} />
         <div className="p-8 text-center text-gray-500 font-medium">Загрузка релиза...</div>
       </div>
     );
@@ -572,7 +568,7 @@ export const ReleaseDetailsPage = () => {
   if (isReleaseDeleted) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <BackHeader />
+        <BackHeader onBack={() => navigate(backTarget)} label={release?.products?.id ? 'Назад к продукту' : 'Назад к пространству'} />
         <main className="max-w-6xl mx-auto px-4 py-8">
           <div className="bg-amber-50 border border-amber-200 text-amber-800 p-6 rounded-xl shadow-sm">
             <h2 className="text-lg font-bold mb-1">Релиз удалён</h2>
@@ -592,7 +588,7 @@ export const ReleaseDetailsPage = () => {
   if (isReleaseError || !release) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <BackHeader />
+        <BackHeader onBack={() => navigate(backTarget)} label={release?.products?.id ? 'Назад к продукту' : 'Назад к пространству'} />
         <main className="max-w-6xl mx-auto px-4 py-8">
           <div className="bg-red-50 border border-red-200 text-red-700 p-6 rounded-xl shadow-sm">
             <h2 className="text-lg font-bold mb-1">Ошибка загрузки релиза</h2>
@@ -612,7 +608,7 @@ export const ReleaseDetailsPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <BackHeader />
+      <BackHeader onBack={() => navigate(backTarget)} label={release?.products?.id ? 'Назад к продукту' : 'Назад к пространству'} />
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">

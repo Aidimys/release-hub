@@ -14,11 +14,6 @@ vi.mock('@/shared/api/supabase', () => ({
 const mockedSupabase = supabase as unknown as { from: vi.Mock };
 
 describe('useReorderReleaseChanges', () => {
-  const wrapper = ({ children }: { children: React.ReactNode }) => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return createElement(QueryClientProvider, { client: queryClient }, children);
-  };
-
   it('rolls back optimistic reorder when server request fails', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapperWithClient = ({ children }: { children: React.ReactNode }) =>

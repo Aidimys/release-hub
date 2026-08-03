@@ -32,7 +32,6 @@ export const EditWorkspaceModal = ({ isOpen, currentName, onClose, onSubmit }: P
   useEffect(() => {
     if (isOpen) {
       reset({ name: currentName });
-      setErrorText(null);
     }
   }, [currentName, isOpen, reset]);
 
