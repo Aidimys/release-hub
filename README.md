@@ -270,10 +270,10 @@ npm run build
 
 Для проверки бизнес-процесса предусмотрены тестовые аккаунты, используемые в e2e сценариях:
 
-| Email                    | Пароль         | Роль       |
-| ------------------------ | -------------- | ---------- |
-| `owner@example.com`      | `Password123!` | owner      |
-| `maintainer@example.com` | `Password123!` | maintainer |
+| Email                    | Пароль   | Роль       |
+| ------------------------ | -------- | ---------- |
+| `owner@example.com`      | `test12` | owner      |
+| `maintainer@example.com` | `test12` | maintainer |
 
 Сценарии проверяют создание workspace, создание релиза, назначение согласующих, отправку на review, утверждение/публикацию и просмотр публичных release notes.
 
