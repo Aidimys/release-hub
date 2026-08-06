@@ -7,6 +7,7 @@ import { WorkspaceDetailsPage } from '../../pages/WorkspaceDetailsPage';
 import { ReleaseDetailsPage } from '../../pages/ReleaseDetailsPage';
 import { ProductDetailsPage } from '../../pages/ProductDetailsPage';
 import { PublicReleaseNotesPage } from '../../pages/PublicReleaseNotesPage';
+import { AcceptInvitePage } from '../../pages/AcceptInvitePage';
 import { NotFoundPage } from '../../pages/NotFoundPage';
 
 export const AppRouter = () => {
@@ -16,6 +17,7 @@ export const AppRouter = () => {
         {/* Публичные маршруты */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="/public/releases/:productId" element={<PublicReleaseNotesPage />} />
 
         {/* Защищенные маршруты */}

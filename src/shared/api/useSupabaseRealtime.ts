@@ -23,6 +23,7 @@ interface ReleaseRecord {
 const tableLabels: Record<string, string> = {
   workspaces: 'рабочих пространств',
   workspace_members: 'участников',
+  workspace_invites: 'приглашений',
 };
 
 const invalidateQueryByTable = (queryClient: ReturnType<typeof useQueryClient>, table: string) => {
@@ -36,13 +37,18 @@ const invalidateQueryByTable = (queryClient: ReturnType<typeof useQueryClient>, 
       queryClient.invalidateQueries({ queryKey: ['workspace'] });
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       break;
+    case 'workspace_invites':
+      queryClient.invalidateQueries({ queryKey: ['workspace_invites'] });
+      queryClient.invalidateQueries({ queryKey: ['workspace'] });
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      break;
     default:
       queryClient.invalidateQueries();
       break;
   }
 };
 
-const watchedTables = ['workspaces', 'workspace_members'] as const;
+const watchedTables = ['workspaces', 'workspace_members', 'workspace_invites'] as const;
 
 const applyListChange = (queryClient: ReturnType<typeof useQueryClient>, queryKey: readonly unknown[], payload: RealtimePayload) => {
   queryClient.setQueryData(queryKey, (current: QueryListItem[] | undefined) => {
@@ -174,6 +180,14 @@ export const useWorkspaceRealtime = (workspaceId: string) => {
             queryClient.invalidateQueries({ queryKey: ['workspace_members', workspaceId] });
             queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] });
             queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'workspace_invites', filter: `workspace_id=eq.${workspaceId}` },
+          () => {
+            queryClient.invalidateQueries({ queryKey: ['workspace_invites', workspaceId] });
+            queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] });
           }
         )
         .on(

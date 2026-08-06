@@ -3,8 +3,16 @@ import { supabase } from '../../../shared/api/supabase';
 import type { Database } from '../../../shared/api/database.types';
 
 type WorkspaceMemberRow = Database['public']['Tables']['workspace_members']['Row'];
+type WorkspaceInviteRow = Database['public']['Tables']['workspace_invites']['Row'];
 
 interface WorkspaceMember extends WorkspaceMemberRow {
+  profiles?: {
+    display_name?: string | null;
+    avatar_url?: string | null;
+  };
+}
+
+interface WorkspaceInvite extends WorkspaceInviteRow {
   profiles?: {
     display_name?: string | null;
     avatar_url?: string | null;
@@ -29,7 +37,7 @@ export const useWorkspace = (workspaceId: string) => {
     retry: false,
   });
 };
-export type { WorkspaceMember };
+export type { WorkspaceMember, WorkspaceInvite };
 
 // 2. Получение участников
 export const useWorkspaceMembers = (workspaceId: string) => {
@@ -61,6 +69,37 @@ export const useWorkspaceMembers = (workspaceId: string) => {
       }
 
       return data as WorkspaceMember[];
+    },
+    enabled: !!workspaceId,
+    retry: false,
+  });
+};
+
+// 2b. Получение приглашений
+export const useWorkspaceInvites = (workspaceId: string) => {
+  return useQuery<WorkspaceInvite[]>({
+    queryKey: ['workspace_invites', workspaceId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workspace_invites')
+        .select(`
+          id,
+          workspace_id,
+          email,
+          role,
+          status,
+          expires_at,
+          accepted_at,
+          created_at,
+          updated_at
+         `)
+        .eq('workspace_id', workspaceId)
+        .eq('status', 'pending')
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data as WorkspaceInvite[];
     },
     enabled: !!workspaceId,
     retry: false,
@@ -261,6 +300,104 @@ export const useDeleteRelease = (workspaceId: string) => {
       queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
       queryClient.invalidateQueries({ queryKey: ['product_releases'] });
       queryClient.invalidateQueries({ queryKey: ['release'] });
+    },
+  });
+};
+
+// 10. Создание приглашения (owner only)
+export const useCreateInvite = (workspaceId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ email, role }: { email: string; role: Database['public']['Enums']['workspace_role'] }) => {
+      const { data, error } = await supabase.rpc('create_invite', {
+        p_workspace_id: workspaceId,
+        p_email: email,
+        p_role: role,
+      });
+
+      if (error) throw new Error(error.message);
+
+      if (data === null) {
+        throw new Error('Не удалось создать приглашение. Проверьте правила RLS.');
+      }
+
+      return data as string;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_invites', workspaceId] });
+    },
+  });
+};
+
+// 11. Принятие приглашения (токен из email/URL)
+export const useAcceptInvite = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const { data, error } = await supabase.rpc('accept_invite', {
+        p_token: token,
+      });
+
+      if (error) throw new Error(error.message);
+
+      if (data === null) {
+        throw new Error('Не удалось принять приглашение. Проверьте правила RLS.');
+      }
+
+      return data as string;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+    },
+  });
+};
+
+// 12. Отзыв приглашения (owner only)
+export const useRevokeInvite = (workspaceId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const { data, error } = await supabase.rpc('revoke_invite', {
+        p_invite_id: inviteId,
+      });
+
+      if (error) throw new Error(error.message);
+
+      if (data === null) {
+        throw new Error('Не удалось отозвать приглашение. Проверьте правила RLS.');
+      }
+
+      return data as string;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_invites', workspaceId] });
+    },
+  });
+};
+
+// 13. Повторная отправка приглашения (owner only, new token)
+export const useResendInvite = (workspaceId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const { data, error } = await supabase.rpc('resend_invite', {
+        p_invite_id: inviteId,
+      });
+
+      if (error) throw new Error(error.message);
+
+      if (data === null) {
+        throw new Error('Не удалось повторно отправить приглашение. Проверьте правила RLS.');
+      }
+
+      return data as string;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace_invites', workspaceId] });
     },
   });
 };

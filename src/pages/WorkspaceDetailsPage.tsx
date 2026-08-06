@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
-import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useWorkspaceActivity, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, type WorkspaceMember } from '../features/workspaces/api/useWorkspaceDetails';
+import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useWorkspaceActivity, useWorkspaceInvites, useCreateInvite, useRevokeInvite, useResendInvite, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, type WorkspaceMember, type WorkspaceInvite } from '../features/workspaces/api/useWorkspaceDetails';
 import { usePermissions } from '../features/workspaces/api/usePermissions';
 import { useWorkspaceRealtime } from '../shared/api/useSupabaseRealtime';
 import { supabase } from '../shared/api/supabase';
@@ -58,12 +58,14 @@ export const WorkspaceDetailsPage = () => {
   const [memberRole, setMemberRole] = useState<'owner' | 'maintainer' | 'contributor'>('contributor');
   const [memberError, setMemberError] = useState<string | null>(null);
   const [memberSuccess, setMemberSuccess] = useState<string | null>(null);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
 
   const workspaceId = routeWorkspaceId ?? '';
   useWorkspaceRealtime(workspaceId);
   const { data: workspace, isLoading: isWsLoading, isError: isWsError, error: wsError } =
     useWorkspace(workspaceId);
   const { data: members } = useWorkspaceMembers(workspaceId);
+  const { data: invites } = useWorkspaceInvites(workspaceId);
   const {
     data: products,
     isLoading: isProductsLoading,
@@ -84,6 +86,9 @@ export const WorkspaceDetailsPage = () => {
   const deleteProduct = useDeleteProduct(workspaceId);
   const deleteRelease = useDeleteRelease(workspaceId);
   const cancelPublishedRelease = useCancelPublishedRelease(workspaceId);
+  const createInvite = useCreateInvite(workspaceId);
+  const revokeInvite = useRevokeInvite(workspaceId);
+  const resendInvite = useResendInvite(workspaceId);
 
   const permissions = usePermissions(members);
 
@@ -150,33 +155,20 @@ export const WorkspaceDetailsPage = () => {
 
     setMemberError(null);
     setMemberSuccess(null);
+    setInviteToken(null);
 
     try {
-      const { data: profile, error: profileError } = await supabase.rpc('find_profile_by_email', {
-        email_input: memberEmail.trim(),
+      const token = await createInvite.mutateAsync({
+        email: memberEmail.trim(),
+        role: memberRole,
       });
-
-      if (profileError) throw new Error(profileError.message);
-      const profiles = profile as Array<{ id: string }> | null | undefined;
-      const invitedUserId = profiles?.[0]?.id;
-      if (!invitedUserId) {
-        setMemberError('Пользователь не найден по email');
-        return;
-      }
-
-      const { error } = await supabase.rpc('invite_member', {
-        p_workspace_id: workspaceId,
-        p_email: memberEmail.trim(),
-        p_role: memberRole,
-      });
-
-      if (error) throw new Error(error.message);
 
       setMemberEmail('');
       setMemberRole('contributor');
-      setMemberSuccess('Участник приглашён');
+      setMemberSuccess(`Приглашение отправлено на ${memberEmail.trim()}. Поделитесь этим токеном с пользователем.`);
+      setInviteToken(token);
     } catch (err) {
-      setMemberError((err as Error)?.message || 'Не удалось приглашить участника');
+      setMemberError((err as Error)?.message || 'Не удалось пригласить участника');
     }
   };
 
@@ -225,6 +217,26 @@ export const WorkspaceDetailsPage = () => {
     }
   };
 
+  const handleRevokeInvite = async (inviteId: string) => {
+    try {
+      await revokeInvite.mutateAsync(inviteId);
+      setMemberError(null);
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось отозвать приглашение');
+    }
+  };
+
+  const handleResendInvite = async (inviteId: string) => {
+    try {
+      const newToken = await resendInvite.mutateAsync(inviteId);
+      setMemberError(null);
+      setInviteToken(newToken);
+      setMemberSuccess('Приглашение повторно отправлено. Новый токен создан.');
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось повторно отправить приглашение');
+    }
+  };
+
   const handleDeleteProduct = async (productId: string) => {
     try {
       await deleteProduct.mutateAsync(productId);
@@ -243,7 +255,7 @@ export const WorkspaceDetailsPage = () => {
 
   const handleCancelPublishedRelease = async (releaseId: string) => {
     try {
-      await cancelPublishedRelease.mutateAsync(releaseId);
+      await cancelPublishedRelease.mutateAsync({ releaseId });
     } catch (err) {
       setMemberError((err as Error)?.message || 'Не удалось отменить релиз');
     }
@@ -614,14 +626,95 @@ export const WorkspaceDetailsPage = () => {
                       <option value="maintainer">Maintainer</option>
                     </select>
                     <button type="submit" className="px-3 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white">
-                      Добавить
+                      Пригласить
                     </button>
                   </div>
+                  {createInvite.isPending && (
+                    <div className="text-xs text-gray-500">Создание приглашения...</div>
+                  )}
                 </form>
+                {inviteToken && (
+                  <div className="p-3 bg-indigo-50 border-t border-indigo-200">
+                    <div className="text-xs text-indigo-700 font-medium mb-2">
+                      Приглашение создано. Поделитесь этой ссылкой с пользователем:
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs font-mono break-all text-indigo-800 bg-white p-2 rounded border border-indigo-200">
+                        {`${window.location.origin}/accept-invite?token=${inviteToken}`}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(
+                            `${window.location.origin}/accept-invite?token=${inviteToken}`
+                          );
+                          setMemberSuccess('Ссылка скопирована в буфер обмена');
+                        }}
+                        className="px-3 py-1 text-xs font-medium text-indigo-700 border border-indigo-300 rounded-lg hover:bg-indigo-100 shrink-0"
+                      >
+                        Копировать
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-white rounded-xl border border-gray-200 p-4 text-sm text-gray-600">
                 У вас нет прав приглашать участников в это пространство.
+              </div>
+             )}
+
+            {invites && invites.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="p-4 border-b border-gray-200 font-bold text-gray-900">
+                  Ожидающие приглашения
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {invites.map((invite: WorkspaceInvite) => {
+                    const isPending = invite.status === 'pending';
+                    const isExpired = invite.status === 'expired' || (new Date(invite.expires_at) < new Date());
+                    const isAccepted = invite.status === 'accepted';
+                    const isRevoked = invite.status === 'revoked';
+                    const canAct = permissions.role === 'owner' && isPending;
+
+                    let statusLabel = '';
+                    if (isPending) statusLabel = 'Ожидает подтверждения';
+                    else if (isExpired) statusLabel = 'Просрочено';
+                    else if (isAccepted) statusLabel = 'Принято';
+                    else if (isRevoked) statusLabel = 'Отозвано';
+
+                    return (
+                      <div key={invite.id} className="p-4 flex flex-col gap-3 md:flex-row md:justify-between md:items-center">
+                        <div>
+                          <div className="font-medium text-gray-900">{invite.email}</div>
+                          <div className="text-xs text-gray-400">Роль: {invite.role}</div>
+                          <div className="text-xs text-gray-400">Статус: {statusLabel}</div>
+                          <div className="text-xs text-gray-400">
+                            Истекает: {new Date(invite.expires_at).toLocaleString('ru-RU')}
+                          </div>
+                        </div>
+                        {canAct && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleResendInvite(invite.id)}
+                              disabled={resendInvite.isPending}
+                              className="px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                            >
+                              Повторить
+                            </button>
+                            <button
+                              onClick={() => handleRevokeInvite(invite.id)}
+                              disabled={revokeInvite.isPending}
+                              className="px-3 py-2 text-sm font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                            >
+                              Отозвать
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../../shared/api/supabase';
 
 const loginSchema = z.object({
@@ -14,6 +14,8 @@ type LoginFormData = z.infer<typeof loginSchema>;
 
 export const LoginForm = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = searchParams.get('redirectTo') ?? '/workspaces';
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
@@ -36,7 +38,7 @@ export const LoginForm = () => {
       return;
     }
 
-    navigate('/workspaces');
+    navigate(redirectTo);
   };
 
   return (
