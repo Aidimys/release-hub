@@ -270,9 +270,10 @@ export const useCancelPublishedRelease = (workspaceId: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (releaseId: string) => {
+    mutationFn: async ({ releaseId, expectedUpdatedAt }: { releaseId: string; expectedUpdatedAt?: string | null }) => {
       const { data, error } = await supabase.rpc('cancel_published_release', {
         p_release_id: releaseId,
+        p_expected_updated_at: expectedUpdatedAt ?? null,
       });
 
       if (error) throw new Error(error.message);
@@ -284,7 +285,7 @@ export const useCancelPublishedRelease = (workspaceId: string) => {
 
       return data;
     },
-    onSuccess: (_data, releaseId) => {
+    onSuccess: (_data, { releaseId }) => {
       queryClient.setQueryData(['release_reviewers', releaseId], (current: Array<{ decision?: string | null; decided_at?: string | null }> | undefined) => {
         if (!current) return current;
         return current.map((reviewer) => ({

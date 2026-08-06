@@ -5,7 +5,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
-import { ReleaseReviewersModal } from '../features/auth/ui/ReleaseReviewersModal';
 import { usePermissions } from '../features/workspaces/api/usePermissions';
 import { useCancelPublishedRelease, useDeleteRelease, useWorkspaceMembers } from '../features/workspaces/api/useWorkspaceDetails';
 import { canTransitionToStatus, validateReleaseForReview } from '../features/workspaces/utils/releaseWorkflow';
@@ -18,6 +17,12 @@ import {
   useReleaseDetails,
   useReleaseReviewers,
   useReorderReleaseChanges,
+  useSubmitReleaseForReview,
+  useCastReleaseVote,
+  usePublishRelease,
+  useReturnRejectedReleaseToDraft,
+  useUpdateReleaseChange,
+  useUpdateReleaseComment,
 } from '../features/workspaces/api/useReleaseDetails';
 import { supabase } from '../shared/api/supabase';
 import { useReleaseRealtime } from '../shared/api/useSupabaseRealtime';
@@ -132,8 +137,12 @@ export const ReleaseDetailsPage = () => {
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [commentText, setCommentText] = useState('');
-  const [isReviewersModalOpen, setIsReviewersModalOpen] = useState(false);
   const [isActivityCollapsed, setIsActivityCollapsed] = useState(false);
+  const [pendingReviewerIds, setPendingReviewerIds] = useState<string[]>([]);
+  const [editingChangeId, setEditingChangeId] = useState<string | null>(null);
+  const [editingChangeForm, setEditingChangeForm] = useState<{ category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string }>({ category: 'feature', title: '', description: '' });
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
   const [optimisticReleaseStatus, setOptimisticReleaseStatus] = useState<'draft' | 'review' | 'approved' | 'rejected' | 'published' | null>(null);
 
   const resolvedWorkspaceId = workspaceId ?? '';
@@ -147,6 +156,12 @@ export const ReleaseDetailsPage = () => {
   const createReleaseChange = useCreateReleaseChange(resolvedReleaseId);
   const createReleaseComment = useCreateReleaseComment(resolvedReleaseId);
   const reorderReleaseChanges = useReorderReleaseChanges(resolvedReleaseId);
+  const submitForReview = useSubmitReleaseForReview();
+  const castVote = useCastReleaseVote();
+  const publishRelease = usePublishRelease();
+  const returnToDraft = useReturnRejectedReleaseToDraft();
+  const updateReleaseChange = useUpdateReleaseChange();
+  const updateReleaseComment = useUpdateReleaseComment();
 
   const { data: workspaceMembers } = useWorkspaceMembers(resolvedWorkspaceId);
   const permissions = usePermissions(workspaceMembers);
@@ -156,7 +171,6 @@ export const ReleaseDetailsPage = () => {
   const releaseStatus = optimisticReleaseStatus ?? release?.status ?? 'draft';
   const isReleaseDeleted = Boolean(queryClient.getQueryData(['release_deleted', resolvedReleaseId]));
   const isVotingClosed = releaseStatus !== 'review';
-  const hasRejectVote = reviewers?.some((reviewer) => reviewer.decision === 'rejected');
   const canReorderChanges = releaseStatus === 'draft' && permissions.canEditChange;
   const isPublished = releaseStatus === 'published';
 
@@ -274,11 +288,13 @@ export const ReleaseDetailsPage = () => {
     }
 
     if (nextStatus === 'review') {
+      const existingIds = (reviewers ?? []).map((r) => r.user_id).filter((id): id is string => !!id);
+      const combinedReviewerIds = [...new Set([...existingIds, ...pendingReviewerIds])];
       const validation = validateReleaseForReview({
         title: release?.title,
         version: release?.version,
         changes,
-        reviewers,
+        reviewers: combinedReviewerIds.map((id) => ({ user_id: id })),
       });
 
       if (!validation.isValid) {
@@ -287,24 +303,29 @@ export const ReleaseDetailsPage = () => {
       }
     }
 
-    if (nextStatus === 'approved') {
-      const hasRejectedReviewer = reviewers?.some((reviewer) => reviewer.decision === 'rejected');
-      if (hasRejectedReviewer) {
-        setErrorText('Нельзя подтвердить релиз: есть голос против. Сначала отклоните или пересмотрите решение.');
-        return;
-      }
-
-      const hasPendingReviewer = reviewers?.some((reviewer) => reviewer.decision !== 'approved');
-      if (reviewers && reviewers.length > 0 && hasPendingReviewer) {
-        setErrorText('Все назначенные согласующие должны проголосовать approve, прежде чем релиз станет approved');
-        return;
-      }
-    }
-
     const previousStatus = release?.status ?? 'draft';
     const previousPublishedAt = release?.published_at ?? null;
     const publishedAt = nextStatus === 'published' ? new Date().toISOString() : null;
     const productId = typeof release?.products?.id === 'string' ? release.products.id : undefined;
+    const updatedAt = release?.updated_at ?? null;
+
+    const rollbackOptimistic = () => {
+      queryClient.setQueryData(['release', resolvedReleaseId], (current: ReleaseRecord | undefined) => {
+        if (!current) return current;
+        return {
+          ...current,
+          status: previousStatus,
+          published_at: previousPublishedAt,
+        };
+      });
+      if (resolvedWorkspaceId) {
+        updateReleaseListCache(['workspace_releases', resolvedWorkspaceId], previousStatus, previousPublishedAt);
+      }
+      if (productId) {
+        updateReleaseListCache(['product_releases', productId], previousStatus, previousPublishedAt);
+      }
+      setOptimisticReleaseStatus(null);
+    };
 
     queryClient.setQueryData(['release', resolvedReleaseId], (current: ReleaseRecord | undefined) => {
       if (!current) return current;
@@ -324,29 +345,39 @@ export const ReleaseDetailsPage = () => {
     }
 
     try {
-      const { error } = await supabase
-        .from('releases')
-        .update({ status: nextStatus, published_at: publishedAt })
-        .eq('id', resolvedReleaseId);
-
-      if (error) throw new Error(error.message);
+      switch (nextStatus) {
+        case 'review': {
+          const existingIds = (reviewers ?? []).map((r) => r.user_id).filter((id): id is string => !!id);
+          const reviewerIds = [...new Set([...existingIds, ...pendingReviewerIds])];
+          await submitForReview.mutateAsync({ releaseId: resolvedReleaseId, reviewerIds, expectedUpdatedAt: updatedAt });
+          setPendingReviewerIds([]);
+          break;
+        }
+        case 'approved': {
+          const result = await castVote.mutateAsync({ releaseId: resolvedReleaseId, decision: 'approved', expectedUpdatedAt: updatedAt });
+          if (result) {
+            setOptimisticReleaseStatus(result as 'draft' | 'review' | 'approved' | 'rejected' | 'published');
+          }
+          break;
+        }
+        case 'published': {
+          await publishRelease.mutateAsync({ releaseId: resolvedReleaseId, expectedUpdatedAt: updatedAt });
+          break;
+        }
+        case 'draft': {
+          if (previousStatus === 'rejected') {
+            await returnToDraft.mutateAsync({ releaseId: resolvedReleaseId, expectedUpdatedAt: updatedAt });
+          }
+          break;
+        }
+        default:
+          break;
+      }
 
       if (nextStatus === 'draft') {
-        await supabase
-          .from('release_reviewers')
-          .update({ decision: null, decided_at: null })
-          .eq('release_id', resolvedReleaseId);
-
         await resetReviewersState();
       }
 
-      await supabase.from('activity_events').insert({
-        workspace_id: resolvedWorkspaceId,
-        release_id: resolvedReleaseId,
-        actor_id: user.id,
-        event_type: 'status_changed',
-        payload: { from: releaseStatus, to: nextStatus, message: `Статус изменён с ${releaseStatus} на ${nextStatus}` },
-      });
       setErrorText(null);
       await queryClient.invalidateQueries({ queryKey: ['release', resolvedReleaseId] });
       if (resolvedWorkspaceId) {
@@ -358,21 +389,7 @@ export const ReleaseDetailsPage = () => {
         await queryClient.refetchQueries({ queryKey: ['product_releases', productId] });
       }
     } catch (error: unknown) {
-      queryClient.setQueryData(['release', resolvedReleaseId], (current: ReleaseRecord | undefined) => {
-        if (!current) return current;
-        return {
-          ...current,
-          status: previousStatus,
-          published_at: previousPublishedAt,
-        };
-      });
-      if (resolvedWorkspaceId) {
-        updateReleaseListCache(['workspace_releases', resolvedWorkspaceId], previousStatus, previousPublishedAt);
-      }
-      if (productId) {
-        updateReleaseListCache(['product_releases', productId], previousStatus, previousPublishedAt);
-      }
-      setOptimisticReleaseStatus(null);
+      rollbackOptimistic();
       setErrorText(getErrorMessage(error) || 'Не удалось сменить статус релиза');
     }
   };
@@ -392,7 +409,10 @@ export const ReleaseDetailsPage = () => {
     if (!window.confirm('Отменить публикацию релиза?')) return;
 
     try {
-      await cancelPublishedRelease.mutateAsync(resolvedReleaseId);
+      await cancelPublishedRelease.mutateAsync({
+        releaseId: resolvedReleaseId,
+        expectedUpdatedAt: release?.updated_at ?? null,
+      });
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось отменить публикацию релиза');
     }
@@ -451,6 +471,27 @@ export const ReleaseDetailsPage = () => {
     }
   };
 
+  const startEditComment = (comment: { id: string; content?: string | null }) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentText(comment.content ?? '');
+  };
+
+  const saveEditComment = async () => {
+    if (!editingCommentId) return;
+    setErrorText(null);
+
+    try {
+      await updateReleaseComment.mutateAsync({
+        commentId: editingCommentId,
+        content: editingCommentText.trim(),
+      });
+      setEditingCommentId(null);
+      setEditingCommentText('');
+    } catch (error: unknown) {
+      setErrorText(getErrorMessage(error) || 'Не удалось сохранить комментарий');
+    }
+  };
+
   const handleVote = async (decision: 'approved' | 'rejected') => {
     if (!user?.id) return;
     if (releaseStatus !== 'review') {
@@ -467,23 +508,16 @@ export const ReleaseDetailsPage = () => {
     setErrorText(null);
 
     try {
-      const { error } = await supabase
-        .from('release_reviewers')
-        .upsert({
-          release_id: resolvedReleaseId,
-          user_id: user.id,
-          decision,
-          decided_at: new Date().toISOString(),
-        }, { onConflict: 'release_id,user_id' });
-
-      if (error) throw new Error(error.message);
-      await supabase.from('activity_events').insert({
-        workspace_id: resolvedWorkspaceId,
-        release_id: resolvedReleaseId,
-        actor_id: user.id,
-        event_type: 'vote_submitted',
-        payload: { decision, message: `Пользователь проголосовал ${decision === 'approved' ? 'за' : 'против'}` },
+      const newStatus = await castVote.mutateAsync({
+        releaseId: resolvedReleaseId,
+        decision,
+        expectedUpdatedAt: release?.updated_at ?? null,
       });
+
+      if (newStatus) {
+        setOptimisticReleaseStatus(newStatus as 'draft' | 'review' | 'approved' | 'rejected' | 'published');
+      }
+
       await queryClient.invalidateQueries({ queryKey: ['release_reviewers', resolvedReleaseId] });
       await queryClient.invalidateQueries({ queryKey: ['release_activity', resolvedReleaseId] });
     } catch (error: unknown) {
@@ -512,8 +546,8 @@ export const ReleaseDetailsPage = () => {
 
     try {
       await reorderReleaseChanges.mutateAsync(reorderedItems);
-    } catch {
-      setErrorText('Не удалось сохранить порядок изменений');
+    } catch (error: unknown) {
+      setErrorText(getErrorMessage(error) || 'Не удалось сохранить порядок изменений');
     } finally {
       setDraggedId(null);
       setDropTargetId(null);
@@ -548,6 +582,28 @@ export const ReleaseDetailsPage = () => {
       await queryClient.invalidateQueries({ queryKey: ['release_changes', resolvedReleaseId] });
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось удалить изменение');
+    }
+  };
+
+  const startEditChange = (change: { id: string; category: string; title: string; description: string; updated_at?: string | null }) => {
+    setEditingChangeId(change.id);
+    setEditingChangeForm({ category: change.category as 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking', title: change.title, description: change.description });
+  };
+
+  const saveEditChange = async () => {
+    if (!editingChangeId) return;
+    setErrorText(null);
+
+    try {
+      await updateReleaseChange.mutateAsync({
+        changeId: editingChangeId,
+        category: editingChangeForm.category,
+        title: editingChangeForm.title.trim(),
+        description: editingChangeForm.description.trim(),
+      });
+      setEditingChangeId(null);
+    } catch (error: unknown) {
+      setErrorText(getErrorMessage(error) || 'Не удалось сохранить изменение');
     }
   };
 
@@ -660,30 +716,89 @@ export const ReleaseDetailsPage = () => {
             <div className="flex flex-wrap gap-2 mb-4">
               <button onClick={() => handleVote('approved')} disabled={isVotingClosed || !reviewers?.some((reviewer) => reviewer.user_id === user?.id)} className="px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 disabled:opacity-50">Проголосовать за</button>
               <button onClick={() => handleVote('rejected')} disabled={isVotingClosed || !reviewers?.some((reviewer) => reviewer.user_id === user?.id)} className="px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 disabled:opacity-50">Проголосовать против</button>
-              {permissions.canApproveRelease && (
-                <button onClick={() => setIsReviewersModalOpen(true)} disabled={isPublished} className="px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">Назначить согласующих</button>
-              )}
             </div>
             {isReviewersLoading ? (
               <div className="h-16 bg-gray-200 animate-pulse rounded-xl" />
-            ) : reviewers && reviewers.length > 0 ? (
-              <div className="space-y-3">
-                {reviewers.map((reviewer: ReleaseReviewerItem) => (
-                  <div key={reviewer.id} className="rounded-xl border border-gray-200 p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="font-medium text-gray-900">{reviewer.profiles?.display_name ?? 'Участник'}</div>
-                      <span className="px-2 py-1 rounded-full text-[11px] font-semibold uppercase bg-gray-100 text-gray-700">
-                        {reviewer.decision ?? 'pending'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {reviewer.decided_at ? `Решение принято: ${new Date(reviewer.decided_at).toLocaleString('ru-RU')}` : 'Ожидает решения'}
-                    </p>
-                  </div>
-                ))}
-              </div>
             ) : (
-              <div className="text-sm text-gray-500">К этому релизу пока не назначены ревьюеры.</div>
+              <div className="space-y-3">
+                {(reviewers ?? []).length > 0 && (
+                  <div className="space-y-2">
+                    {(reviewers ?? []).map((reviewer: ReleaseReviewerItem) => (
+                      <div key={reviewer.id} className="rounded-xl border border-gray-200 p-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-gray-900">{reviewer.profiles?.display_name ?? 'Участник'}</div>
+                            <span className="px-2 py-1 rounded-full text-[11px] font-semibold uppercase bg-gray-100 text-gray-700">
+                              {reviewer.decision ?? 'pending'}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {reviewer.decided_at ? `Решение принято: ${new Date(reviewer.decided_at).toLocaleString('ru-RU')}` : 'Ожидает решения'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {pendingReviewerIds.length > 0 && (
+                  <div className="space-y-2">
+                    {pendingReviewerIds.map((userId) => {
+                      const member = (workspaceMembers ?? []).find((m) => m.user_id === userId);
+                      return (
+                        <div key={userId} className="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="font-medium text-gray-900">{member?.profiles?.display_name ?? 'Участник'}</div>
+                              <span className="px-2 py-1 rounded-full text-[11px] font-semibold uppercase bg-indigo-100 text-indigo-700">
+                                pending
+                              </span>
+                            </div>
+                            {permissions.canApproveRelease && !isPublished && (
+                              <button
+                                onClick={() => setPendingReviewerIds((current) => current.filter((id) => id !== userId))}
+                                className="text-xs font-medium text-red-600 hover:text-red-700"
+                              >
+                                Убрать
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {((reviewers ?? []).length === 0 && pendingReviewerIds.length === 0) && (
+                  <div className="text-sm text-gray-500">К этому релизу пока не назначены ревьюеры.</div>
+                )}
+                {permissions.canApproveRelease && !isPublished && (
+                  <div className="flex items-center gap-2 pt-2">
+                    <select
+                      value=""
+                      onChange={(event) => {
+                        const userId = event.target.value;
+                        const existingIds = new Set((reviewers ?? []).map((r) => r.user_id).filter((id): id is string => !!id));
+                        if (userId && !pendingReviewerIds.includes(userId) && !existingIds.has(userId)) {
+                          setPendingReviewerIds((current) => [...current, userId]);
+                        }
+                        event.target.value = '';
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+                    >
+                      <option value="" disabled>Добавить согласующего...</option>
+                      {(workspaceMembers ?? [])
+                        .filter((m) => {
+                          const uid = m.user_id ?? '';
+                          return uid && !pendingReviewerIds.includes(uid) && !(reviewers ?? []).some((r) => r.user_id === uid);
+                        })
+                        .map((m) => (
+                          <option key={m.user_id} value={m.user_id ?? ''}>
+                            {m.profiles?.display_name ?? 'Участник'} ({m.role})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -693,24 +808,13 @@ export const ReleaseDetailsPage = () => {
               {permissions.canSendForReview && (
                 <button onClick={() => handleStatusChange('review')} disabled={releaseStatus !== 'draft'} className="px-3 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white disabled:opacity-50">Отправить на review</button>
               )}
-              {permissions.canApproveRelease && (
-                <button onClick={() => handleStatusChange('approved')} disabled={releaseStatus !== 'review' || hasRejectVote} className="px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 disabled:opacity-50">Подтвердить</button>
-              )}
               {permissions.canPublishRelease && (
                 <button onClick={() => handleStatusChange('published')} disabled={releaseStatus !== 'approved'} className="px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 disabled:opacity-50">Опубликовать</button>
               )}
             </div>
-            <p className="text-sm text-gray-500 mt-4">Действия меняют статус релиза и отражаются в карточке сверху.</p>
+            <p className="text-sm text-gray-500 mt-4">Статус approved устанавливается автоматически, когда все согласующие проголосуют за релиз.</p>
           </div>
         </div>
-
-        <ReleaseReviewersModal
-          isOpen={isReviewersModalOpen}
-          onClose={() => setIsReviewersModalOpen(false)}
-          workspaceId={resolvedWorkspaceId}
-          releaseId={resolvedReleaseId}
-          currentReviewers={reviewers ?? []}
-        />
 
         {errorText && (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
@@ -801,28 +905,33 @@ export const ReleaseDetailsPage = () => {
                 const isDragging = draggedId === change.id;
                 const isDropTarget = dropTargetId === change.id;
                 const isOwner = change.created_by === user?.id;
+                const canEdit = isOwner && releaseStatus !== 'published';
+                const isEditing = editingChangeId === change.id;
 
                 return (
                   <div
                     key={change.id}
-                    draggable={canReorderChanges}
+                    draggable={canReorderChanges && !isEditing}
                     onDragStart={() => {
-                      if (!canReorderChanges) return;
+                      if (!canReorderChanges || isEditing) return;
                       setDraggedId(change.id);
                       setDropTargetId(change.id);
                     }}
                     onDragOver={(event) => {
-                      if (!canReorderChanges) return;
+                      if (!canReorderChanges || isEditing) return;
                       event.preventDefault();
                       setDropTargetId(change.id);
                     }}
                     onDragLeave={() => {
-                      if (!canReorderChanges) return;
+                      if (!canReorderChanges || isEditing) return;
                       if (dropTargetId === change.id) {
                         setDropTargetId(null);
                       }
                     }}
-                    onDrop={() => handleDrop(change.id)}
+                    onDrop={() => {
+                      if (isEditing) return;
+                      handleDrop(change.id);
+                    }}
                     className={`border rounded-xl p-4 transition-all ${
                       isDragging
                         ? 'border-indigo-500 bg-indigo-50 shadow-md opacity-70'
@@ -831,27 +940,68 @@ export const ReleaseDetailsPage = () => {
                           : 'border-gray-200 bg-gray-50 hover:border-indigo-300 hover:shadow-sm'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">{change.category}</span>
-                          <span className="text-sm font-semibold text-gray-900">{change.title}</span>
+                    {isEditing ? (
+                      <div className="space-y-3">
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Категория</label>
+                            <select
+                              value={editingChangeForm.category}
+                              onChange={(event) => setEditingChangeForm((current) => ({ ...current, category: event.target.value as 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking' }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                            >
+                              <option value="feature">Feature</option>
+                              <option value="improvement">Improvement</option>
+                              <option value="bugfix">Bugfix</option>
+                              <option value="security">Security</option>
+                              <option value="breaking">Breaking</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Название</label>
+                            <input
+                              type="text"
+                              value={editingChangeForm.title}
+                              onChange={(event) => setEditingChangeForm((current) => ({ ...current, title: event.target.value }))}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                            />
+                          </div>
                         </div>
-                        <p className="text-sm text-gray-600 mt-2">{change.description}</p>
-                        <p className="text-xs text-gray-500 mt-2">Автор: {change.authorName || 'Не указан'}</p>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Описание</label>
+                          <textarea
+                            value={editingChangeForm.description}
+                            onChange={(event) => setEditingChangeForm((current) => ({ ...current, description: event.target.value }))}
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setEditingChangeId(null)} className="px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Отмена</button>
+                          <button type="button" onClick={saveEditChange} className="px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Сохранить</button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-400">#{change.position + 1}</span>
-                        {isOwner && releaseStatus !== 'published' && (
-                          <button
-                            onClick={() => handleDeleteChange(change.id, change.created_by)}
-                            className="text-xs font-medium text-red-600 hover:text-red-700"
-                          >
-                            Удалить
-                          </button>
-                        )}
+                    ) : (
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">{change.category}</span>
+                            <span className="text-sm font-semibold text-gray-900">{change.title}</span>
+                          </div>
+                          <p className="text-sm text-gray-600 mt-2">{change.description}</p>
+                          <p className="text-xs text-gray-500 mt-2">Автор: {change.authorName || 'Не указан'}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400">#{change.position + 1}</span>
+                          {canEdit && (
+                            <button onClick={() => startEditChange(change)} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Редактировать</button>
+                          )}
+                          {canEdit && (
+                            <button onClick={() => handleDeleteChange(change.id, change.created_by)} className="text-xs font-medium text-red-600 hover:text-red-700">Удалить</button>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 );
               })}
@@ -882,34 +1032,56 @@ export const ReleaseDetailsPage = () => {
                 <div className="h-16 bg-gray-200 animate-pulse rounded-xl mt-4" />
               ) : comments && comments.length > 0 ? (
                 <div className="mt-4 space-y-3">
-                  {comments.map((comment: ReleaseCommentItem) => (
-                    <div key={comment.id} className="rounded-xl border border-gray-200 p-3">
-                      <div className="flex items-center justify-between text-sm text-gray-700">
-                        <div className="flex items-center gap-3">
-                          {comment.profiles?.avatar_url ? (
-                            <img
-                              src={comment.profiles.avatar_url}
-                              alt={`${comment.profiles?.display_name ?? 'Пользователь'} avatar`}
-                              className="h-8 w-8 rounded-full object-cover"
+                  {comments.map((comment: ReleaseCommentItem) => {
+                    const isEditing = editingCommentId === comment.id;
+                    const canEdit = comment.user_id === user?.id;
+
+                    return (
+                      <div key={comment.id} className="rounded-xl border border-gray-200 p-3">
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <textarea
+                              value={editingCommentText}
+                              onChange={(event) => setEditingCommentText(event.target.value)}
+                              rows={3}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                             />
-                          ) : (
-                            <div className="h-8 w-8 rounded-full bg-gray-200" />
-                          )}
-                          <span className="font-medium">{comment.profiles?.display_name ?? 'Пользователь'}</span>
-                        </div>
-                        <span>{comment.created_at ? new Date(comment.created_at).toLocaleString('ru-RU') : '—'}</span>
+                            <div className="flex justify-end gap-2">
+                              <button type="button" onClick={() => setEditingCommentId(null)} className="px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Отмена</button>
+                              <button type="button" onClick={saveEditComment} className="px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Сохранить</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between text-sm text-gray-700">
+                              <div className="flex items-center gap-3">
+                                {comment.profiles?.avatar_url ? (
+                                  <img
+                                    src={comment.profiles.avatar_url}
+                                    alt={`${comment.profiles?.display_name ?? 'Пользователь'} avatar`}
+                                    className="h-8 w-8 rounded-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="h-8 w-8 rounded-full bg-gray-200" />
+                                )}
+                                <span className="font-medium">{comment.profiles?.display_name ?? 'Пользователь'}</span>
+                              </div>
+                              <span>{comment.created_at ? new Date(comment.created_at).toLocaleString('ru-RU') : '—'}</span>
+                            </div>
+                            <p className="text-sm text-gray-600 mt-2">{comment.content}</p>
+                            <div className="flex gap-3 mt-2">
+                              {canEdit && (
+                                <button onClick={() => startEditComment(comment)} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">Редактировать</button>
+                              )}
+                              {canEdit && (
+                                <button onClick={() => handleDeleteComment(comment.id, comment.user_id ?? '')} className="text-xs font-medium text-red-600 hover:text-red-700">Удалить</button>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
-                      <p className="text-sm text-gray-600 mt-2">{comment.content}</p>
-                      {comment.user_id === user?.id && (
-                        <button
-                          onClick={() => handleDeleteComment(comment.id, comment.user_id ?? '')}
-                          className="mt-2 text-xs font-medium text-red-600 hover:text-red-700"
-                        >
-                          Удалить комментарий
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-sm text-gray-500 mt-4">Комментариев пока нет.</p>

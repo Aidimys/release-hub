@@ -256,8 +256,9 @@ export const useReleaseRealtime = (releaseId: string, workspaceId?: string) => {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'release_changes', filter: `release_id=eq.${releaseId}` },
           (payload: RealtimePayload) => {
+            const incoming = payload.new ?? payload.old;
+            if (typeof incoming?.position === 'number' && incoming.position < 0) return;
             applyListChangeForRelease(['release_changes', releaseId], payload);
-            queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
           }
         )
         .on(

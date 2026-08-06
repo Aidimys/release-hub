@@ -8,10 +8,11 @@ import { supabase } from '@/shared/api/supabase';
 vi.mock('@/shared/api/supabase', () => ({
   supabase: {
     from: vi.fn(),
+    rpc: vi.fn(),
   },
 }));
 
-const mockedSupabase = supabase as unknown as { from: vi.Mock };
+const mockedSupabase = supabase as unknown as { from: vi.Mock; rpc: vi.Mock };
 
 describe('useReorderReleaseChanges', () => {
   it('rolls back optimistic reorder when server request fails', async () => {
@@ -24,9 +25,7 @@ describe('useReorderReleaseChanges', () => {
       { id: 'b', position: 1 },
     ]);
 
-    const eqMock = vi.fn().mockResolvedValue({ error: { message: 'Server failure' } });
-    const updateMock = vi.fn().mockReturnValue({ eq: eqMock });
-    mockedSupabase.from.mockReturnValue({ update: updateMock });
+    mockedSupabase.rpc.mockResolvedValue({ data: null, error: { message: 'Server failure' } });
 
     const { result } = renderHook(() => useReorderReleaseChanges('r1'), { wrapper: wrapperWithClient });
 

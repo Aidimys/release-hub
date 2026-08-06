@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../shared/api/supabase';
+import type { Json } from '../../../shared/api/database.types';
 
 interface ReleaseChangePayload {
   releaseId: string;
@@ -49,6 +50,7 @@ export const useReleaseDetails = (releaseId: string) => {
           planned_at,
           published_at,
           created_at,
+          updated_at,
           products (
             id,
             name,
@@ -133,7 +135,7 @@ export const useReleaseComments = (releaseId: string) => {
           content,
           created_at,
           user_id,
-          profiles (display_name)
+          profiles (display_name, avatar_url)
         `)
         .eq('release_id', releaseId)
         .order('created_at', { ascending: false });
@@ -236,17 +238,13 @@ export const useReorderReleaseChanges = (releaseId: string) => {
 
   return useMutation({
     mutationFn: async (items: ReleaseChangeOrderItem[]) => {
-      const updates = items.map((item) =>
-        supabase.from('release_changes').update({ position: item.position }).eq('id', item.id)
-      );
+      const { data, error } = await supabase.rpc('reorder_release_changes', {
+        p_release_id: releaseId,
+        p_items: items as unknown as Json,
+      });
 
-      const results = await Promise.all(updates);
-      const firstError = results.find((result) => result.error);
-      if (firstError?.error) {
-        throw new Error(firstError.error.message);
-      }
-
-      return items;
+      if (error) throw new Error(error.message);
+      return data;
     },
     onMutate: async (items) => {
       await queryClient.cancelQueries({ queryKey: ['release_changes', releaseId] });
@@ -270,8 +268,135 @@ export const useReorderReleaseChanges = (releaseId: string) => {
         queryClient.setQueryData(['release_changes', releaseId], context.previousChanges);
       }
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
+  });
+};
+
+export const useSubmitReleaseForReview = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ releaseId, reviewerIds, expectedUpdatedAt }: { releaseId: string; reviewerIds: string[]; expectedUpdatedAt?: string | null }) => {
+      const { data, error } = await supabase.rpc('submit_release_for_review', {
+        p_release_id: releaseId,
+        p_reviewer_ids: reviewerIds,
+        p_expected_updated_at: expectedUpdatedAt ?? undefined,
+      });
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['release'] });
+      queryClient.invalidateQueries({ queryKey: ['release_reviewers'] });
+      queryClient.invalidateQueries({ queryKey: ['release_changes'] });
+      queryClient.invalidateQueries({ queryKey: ['release_activity'] });
+    },
+  });
+};
+
+export const useCastReleaseVote = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ releaseId, decision, expectedUpdatedAt }: { releaseId: string; decision: 'approved' | 'rejected'; expectedUpdatedAt?: string | null }) => {
+      const { data, error } = await supabase.rpc('cast_release_vote', {
+        p_release_id: releaseId,
+        p_decision: decision,
+        p_expected_updated_at: expectedUpdatedAt ?? undefined,
+      });
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['release'] });
+      queryClient.invalidateQueries({ queryKey: ['release_reviewers'] });
+      queryClient.invalidateQueries({ queryKey: ['release_activity'] });
+    },
+  });
+};
+
+export const usePublishRelease = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ releaseId, expectedUpdatedAt }: { releaseId: string; expectedUpdatedAt?: string | null }) => {
+      const { data, error } = await supabase.rpc('publish_release', {
+        p_release_id: releaseId,
+        p_expected_updated_at: expectedUpdatedAt ?? undefined,
+      });
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['release'] });
+      queryClient.invalidateQueries({ queryKey: ['release_changes'] });
+      queryClient.invalidateQueries({ queryKey: ['workspace_releases'] });
+      queryClient.invalidateQueries({ queryKey: ['product_releases'] });
+    },
+  });
+};
+
+export const useReturnRejectedReleaseToDraft = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ releaseId, expectedUpdatedAt }: { releaseId: string; expectedUpdatedAt?: string | null }) => {
+      const { data, error } = await supabase.rpc('return_rejected_release_to_draft', {
+        p_release_id: releaseId,
+        p_expected_updated_at: expectedUpdatedAt ?? undefined,
+      });
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['release'] });
+      queryClient.invalidateQueries({ queryKey: ['release_reviewers'] });
+    },
+  });
+};
+
+export const useUpdateReleaseChange = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ changeId, category, title, description }: { changeId: string; category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string }) => {
+      const { data, error } = await supabase
+        .from('release_changes')
+        .update({ category, title, description, updated_at: new Date().toISOString() })
+        .eq('id', changeId)
+        .select();
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['release_changes'] });
+      queryClient.invalidateQueries({ queryKey: ['release'] });
+    },
+  });
+};
+
+export const useUpdateReleaseComment = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ commentId, content }: { commentId: string; content: string }) => {
+      const { data, error } = await supabase
+        .from('comments')
+        .update({ content, updated_at: new Date().toISOString() })
+        .eq('id', commentId)
+        .select();
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['release_comments'] });
+      queryClient.invalidateQueries({ queryKey: ['release_activity'] });
+      queryClient.invalidateQueries({ queryKey: ['release'] });
     },
   });
 };

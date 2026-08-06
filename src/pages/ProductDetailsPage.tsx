@@ -15,6 +15,7 @@ interface ProductRelease {
   planned_at?: string | null;
   published_at?: string | null;
   created_at?: string | null;
+  updated_at: string;
 }
 
 const BackHeader = ({ onBack }: { onBack: () => void }) => (
@@ -73,11 +74,14 @@ export const ProductDetailsPage = () => {
     }
   };
 
-  const handleCancelPublishedRelease = async (releaseId: string) => {
+  const handleCancelPublishedRelease = async (releaseId: string, updatedAt?: string | null) => {
     if (!window.confirm('Отменить публикацию релиза?')) return;
 
     try {
-      await cancelPublishedRelease.mutateAsync(releaseId);
+      await cancelPublishedRelease.mutateAsync({
+        releaseId,
+        expectedUpdatedAt: updatedAt ?? null,
+      });
     } catch (error) {
       window.alert((error as Error)?.message || 'Не удалось отменить публикацию релиза');
     }
@@ -215,7 +219,7 @@ export const ProductDetailsPage = () => {
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            void handleCancelPublishedRelease(release.id);
+                            void handleCancelPublishedRelease(release.id, release.updated_at ?? null);
                           }}
                           disabled={cancelPublishedRelease.isPending}
                           className="px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50"

@@ -415,9 +415,19 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      cancel_published_release: {
-        Args: { p_release_id: string }
-        Returns: boolean
+      cancel_published_release:
+        | { Args: { p_release_id: string }; Returns: boolean }
+        | {
+            Args: { p_expected_updated_at?: string; p_release_id: string }
+            Returns: boolean
+          }
+      cast_release_vote: {
+        Args: {
+          p_decision: string
+          p_expected_updated_at?: string
+          p_release_id: string
+        }
+        Returns: string
       }
       change_member_role: {
         Args: {
@@ -442,6 +452,18 @@ export type Database = {
           id: string
         }[]
       }
+      get_release_workspace_id: {
+        Args: { p_release_id: string }
+        Returns: string
+      }
+      get_user_workspace_ids: {
+        Args: { p_user_id?: string }
+        Returns: string[]
+      }
+      get_user_workspace_role: {
+        Args: { p_user_id?: string; p_workspace_id: string }
+        Returns: string
+      }
       get_workspace_role: {
         Args: { u_id: string; w_id: string }
         Returns: Database["public"]["Enums"]["workspace_role"]
@@ -458,8 +480,16 @@ export type Database = {
         Args: { u_id: string; w_id: string }
         Returns: boolean
       }
+      is_workspace_owner: {
+        Args: { p_user_id?: string; p_workspace_id: string }
+        Returns: boolean
+      }
       product_has_published_release: {
         Args: { product_id: string }
+        Returns: boolean
+      }
+      publish_release: {
+        Args: { p_expected_updated_at?: string; p_release_id: string }
         Returns: boolean
       }
       remove_member: {
@@ -468,6 +498,26 @@ export type Database = {
       }
       rename_workspace: {
         Args: { new_name: string; workspace_id: string }
+        Returns: boolean
+      }
+      reorder_release_changes: {
+        Args: {
+          p_expected_updated_at?: string
+          p_items: Json
+          p_release_id: string
+        }
+        Returns: boolean
+      }
+      return_rejected_release_to_draft: {
+        Args: { p_expected_updated_at?: string; p_release_id: string }
+        Returns: boolean
+      }
+      submit_release_for_review: {
+        Args: {
+          p_expected_updated_at?: string
+          p_release_id: string
+          p_reviewer_ids: string[]
+        }
         Returns: boolean
       }
       update_member_role: {
