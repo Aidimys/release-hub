@@ -10,6 +10,9 @@ import { PublicReleaseNotesPage } from '../../pages/PublicReleaseNotesPage';
 import { AcceptInvitePage } from '../../pages/AcceptInvitePage';
 import { NotFoundPage } from '../../pages/NotFoundPage';
 
+import { ForgotPasswordPage } from '../../pages/ForgotPasswordPage';
+import { ResetPasswordPage } from '../../pages/ResetPasswordPage';
+
 export const AppRouter = () => {
   return (
     <BrowserRouter>
@@ -17,6 +20,8 @@ export const AppRouter = () => {
         {/* Публичные маршруты */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="/public/releases/:productId" element={<PublicReleaseNotesPage />} />
 
