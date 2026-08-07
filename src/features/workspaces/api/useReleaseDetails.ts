@@ -247,7 +247,7 @@ export const useReorderReleaseChanges = (releaseId: string) => {
       if (error) throw new Error(error.message);
       return data;
     },
-    onMutate: async ({ items }: { items: ReleaseChangeOrderItem[] }) => {
+    onMutate: async ({ items }: { items: ReleaseChangeOrderItem[]; expectedUpdatedAt?: string | null }) => {
       await queryClient.cancelQueries({ queryKey: ['release_changes', releaseId] });
 
       const previousChanges = queryClient.getQueryData<Array<{ id: string; position: number; [key: string]: unknown }>>([
