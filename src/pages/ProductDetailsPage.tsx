@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
-import { useCancelPublishedRelease, useDeleteProduct, useDeleteRelease } from '../features/workspaces/api/useWorkspaceDetails';
+import { useCancelPublishedRelease, useDeleteProduct, useDeleteRelease, useUpdateProduct } from '../features/workspaces/api/useWorkspaceDetails';
 import { usePermissions } from '../features/workspaces/api/usePermissions';
 import { CreateReleaseModal } from '../features/auth/ui/CreateReleaseModal';
 import { useProductDetails, useProductReleases, useWorkspaceMembers } from '../features/workspaces/api/useWorkspaceDetails';
 import { useProductReleasesRealtime } from '../shared/api/useSupabaseRealtime';
+import { EditProductModal } from '../features/workspaces/ui/EditProductModal';
+import { DeleteConfirmModal } from '../features/workspaces/ui/DeleteConfirmModal';
 
 interface ProductRelease {
   id: string;
@@ -37,9 +39,13 @@ export const ProductDetailsPage = () => {
   const navigate = useNavigate();
   const { user, isLoading: isAuthLoading } = useAuth();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const resolvedWorkspaceId = workspaceId ?? '';
   const resolvedProductId = productId ?? '';
+
+  const updateProduct = useUpdateProduct(resolvedWorkspaceId);
 
   const {
     data: product,
@@ -84,6 +90,15 @@ export const ProductDetailsPage = () => {
       });
     } catch (error) {
       window.alert((error as Error)?.message || 'Не удалось отменить публикацию релиза');
+    }
+  };
+
+  const handleUpdateProduct = async (data: { name: string; slug: string; description?: string | null }) => {
+    if (!resolvedProductId) return;
+    try {
+      await updateProduct.mutateAsync({ productId: resolvedProductId, ...data });
+    } catch (error) {
+      window.alert((error as Error)?.message || 'Не удалось обновить продукт');
     }
   };
 
@@ -134,13 +149,24 @@ export const ProductDetailsPage = () => {
             <div className="text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-2 flex flex-col gap-2">
               <div>Пользователь: {user?.email ?? 'неизвестно'}</div>
               <div>Ваша роль: {permissions.role}</div>
-              <button
-                type="button"
-                onClick={() => window.open(`/public/releases/${resolvedProductId}`, '_blank', 'noopener,noreferrer')}
-                className="px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-              >
-                Открыть публичную страницу
-              </button>
+              <div className="flex flex-wrap gap-2">
+                {permissions.canEditProduct && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(true)}
+                    className="px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Изменить продукт
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => window.open(`/public/releases/${resolvedProductId}`, '_blank', 'noopener,noreferrer')}
+                  className="px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                >
+                  Открыть публичную страницу
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -158,11 +184,7 @@ export const ProductDetailsPage = () => {
             )}
             {permissions.canDeleteProduct && (
               <button
-                onClick={() => {
-                  if (window.confirm('Удалить продукт? Все связанные релизы и изменения тоже будут удалены.')) {
-                    deleteProduct.mutate(resolvedProductId);
-                  }
-                }}
+                onClick={() => setIsDeleteModalOpen(true)}
                 disabled={deleteProduct.isPending}
                 className="px-4 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
               >
@@ -258,6 +280,29 @@ export const ProductDetailsPage = () => {
         onClose={() => setIsCreateModalOpen(false)}
         productId={resolvedProductId}
       />
+
+      {isEditModalOpen && product && (
+        <EditProductModal
+          isOpen={isEditModalOpen}
+          currentName={product.name}
+          currentSlug={product.slug}
+          currentDescription={product.description}
+          onClose={() => setIsEditModalOpen(false)}
+          onSubmit={handleUpdateProduct}
+        />
+      )}
+
+      {isDeleteModalOpen && product && (
+        <DeleteConfirmModal
+          isOpen={isDeleteModalOpen}
+          title="Удалить продукт?"
+          message={`Вы уверены, что хотите удалить продукт «${product.name}»? Все связанные релизы и их данные (изменения, комментарии, ревьюеры) будут также удалены. Это действие необратимо.`}
+          confirmLabel="Удалить"
+          danger
+          onConfirm={() => deleteProduct.mutate(resolvedProductId)}
+          onClose={() => setIsDeleteModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

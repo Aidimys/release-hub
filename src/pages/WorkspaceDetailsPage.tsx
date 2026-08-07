@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/providers/AuthProvider';
-import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useWorkspaceActivity, useWorkspaceInvites, useCreateInvite, useRevokeInvite, useResendInvite, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, type WorkspaceMember, type WorkspaceInvite } from '../features/workspaces/api/useWorkspaceDetails';
+import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useWorkspaceActivity, useWorkspaceInvites, useCreateInvite, useRevokeInvite, useResendInvite, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, useUpdateProduct, type WorkspaceMember, type WorkspaceInvite } from '../features/workspaces/api/useWorkspaceDetails';
 import { usePermissions } from '../features/workspaces/api/usePermissions';
 import { useWorkspaceRealtime } from '../shared/api/useSupabaseRealtime';
 import { supabase } from '../shared/api/supabase';
+import { CreateProductModal } from '../features/auth/ui/CreateProductModal';
+import { EditProductModal } from '../features/workspaces/ui/EditProductModal';
+import { DeleteConfirmModal } from '../features/workspaces/ui/DeleteConfirmModal';
 
 
 type Tab = 'products' | 'releases' | 'members' | 'activity';
@@ -13,6 +16,7 @@ interface WorkspaceProduct {
   id: string;
   name: string;
   slug: string;
+  description?: string | null;
 }
 
 interface WorkspaceRelease {
@@ -20,6 +24,7 @@ interface WorkspaceRelease {
   version: string;
   title: string;
   status: string;
+  updated_at?: string | null;
   planned_at?: string | null;
   created_at?: string | null;
   published_at?: string | null;
@@ -59,6 +64,9 @@ export const WorkspaceDetailsPage = () => {
   const [memberError, setMemberError] = useState<string | null>(null);
   const [memberSuccess, setMemberSuccess] = useState<string | null>(null);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<WorkspaceProduct | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<WorkspaceProduct | null>(null);
 
   const workspaceId = routeWorkspaceId ?? '';
   useWorkspaceRealtime(workspaceId);
@@ -86,6 +94,7 @@ export const WorkspaceDetailsPage = () => {
   const deleteProduct = useDeleteProduct(workspaceId);
   const deleteRelease = useDeleteRelease(workspaceId);
   const cancelPublishedRelease = useCancelPublishedRelease(workspaceId);
+  const updateProduct = useUpdateProduct(workspaceId);
   const createInvite = useCreateInvite(workspaceId);
   const revokeInvite = useRevokeInvite(workspaceId);
   const resendInvite = useResendInvite(workspaceId);
@@ -240,8 +249,18 @@ export const WorkspaceDetailsPage = () => {
   const handleDeleteProduct = async (productId: string) => {
     try {
       await deleteProduct.mutateAsync(productId);
+      setMemberError(null);
     } catch (err) {
       setMemberError((err as Error)?.message || 'Не удалось удалить продукт');
+    }
+  };
+
+  const handleUpdateProduct = async (productId: string, data: { name: string; slug: string; description?: string | null }) => {
+    try {
+      await updateProduct.mutateAsync({ productId, ...data });
+      setMemberError(null);
+    } catch (err) {
+      setMemberError((err as Error)?.message || 'Не удалось обновить продукт');
     }
   };
 
@@ -253,9 +272,9 @@ export const WorkspaceDetailsPage = () => {
     }
   };
 
-  const handleCancelPublishedRelease = async (releaseId: string) => {
+  const handleCancelPublishedRelease = async (releaseId: string, updatedAt?: string | null) => {
     try {
-      await cancelPublishedRelease.mutateAsync({ releaseId });
+      await cancelPublishedRelease.mutateAsync({ releaseId, expectedUpdatedAt: updatedAt ?? null });
     } catch (err) {
       setMemberError((err as Error)?.message || 'Не удалось отменить релиз');
     }
@@ -373,7 +392,10 @@ export const WorkspaceDetailsPage = () => {
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-bold text-gray-900">Список продуктов</h2>
               {permissions.canCreateProduct && (
-                <button className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 text-sm">
+                <button
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 text-sm"
+                >
                   + Добавить продукт
                 </button>
               )}
@@ -394,19 +416,31 @@ export const WorkspaceDetailsPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {products.map((product: WorkspaceProduct) => (
                   <div key={product.id} className="block bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition">
-                    <Link to={`/workspaces/${workspaceId}/products/${product.id}`}>
-                      <h3 className="font-bold text-gray-900">{product.name}</h3>
-                      <p className="text-xs text-gray-400 mt-1">Slug: {product.slug}</p>
-                    </Link>
-                    {permissions.canDeleteProduct && (
-                      <button
-                        onClick={() => handleDeleteProduct(product.id)}
-                        disabled={deleteProduct.isPending}
-                        className="mt-3 px-3 py-1 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
-                      >
-                        Удалить
-                      </button>
-                    )}
+                    <div className="flex items-start justify-between gap-2">
+                      <Link to={`/workspaces/${workspaceId}/products/${product.id}`} className="flex-1 min-w-0">
+                        <h3 className="font-bold text-gray-900">{product.name}</h3>
+                        <p className="text-xs text-gray-400 mt-1">Slug: {product.slug}</p>
+                      </Link>
+                      <div className="flex gap-1 shrink-0">
+                        {permissions.canEditProduct && (
+                          <button
+                            onClick={() => setEditingProduct(product)}
+                            className="px-2 py-1 text-xs font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50"
+                          >
+                            Изменить
+                          </button>
+                        )}
+                        {permissions.canDeleteProduct && (
+                          <button
+                            onClick={() => setDeletingProduct(product)}
+                            disabled={deleteProduct.isPending}
+                            className="px-2 py-1 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                          >
+                            Удалить
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -517,7 +551,7 @@ export const WorkspaceDetailsPage = () => {
                           )}
                           {permissions.canCancelPublishedRelease && release.status === 'published' && (
                             <button
-                              onClick={() => handleCancelPublishedRelease(release.id)}
+                              onClick={() => handleCancelPublishedRelease(release.id, release.updated_at)}
                               disabled={cancelPublishedRelease.isPending}
                               className="px-3 py-1 text-xs font-medium text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-50"
                             >
@@ -770,6 +804,35 @@ export const WorkspaceDetailsPage = () => {
           </div>
         )}
       </main>
+
+      <CreateProductModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        workspaceId={workspaceId}
+      />
+
+      {editingProduct && (
+        <EditProductModal
+          isOpen={!!editingProduct}
+          currentName={editingProduct.name}
+          currentSlug={editingProduct.slug}
+          currentDescription={editingProduct.description}
+          onClose={() => setEditingProduct(null)}
+          onSubmit={(data) => handleUpdateProduct(editingProduct.id, data)}
+        />
+      )}
+
+      {deletingProduct && (
+        <DeleteConfirmModal
+          isOpen={!!deletingProduct}
+          title="Удалить продукт?"
+          message={`Вы уверены, что хотите удалить продукт «${deletingProduct.name}»? Все связанные релизы и их данные (изменения, комментарии, ревьюеры) будут также удалены. Это действие необратимо.`}
+          confirmLabel="Удалить"
+          danger
+          onConfirm={() => handleDeleteProduct(deletingProduct.id)}
+          onClose={() => setDeletingProduct(null)}
+        />
+      )}
     </div>
   );
 };

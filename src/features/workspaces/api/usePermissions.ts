@@ -9,6 +9,7 @@ interface UsePermissionsReturn {
   canManageMembers: boolean;
   canAssignRoles: boolean;
   canCreateProduct: boolean;
+  canEditProduct: boolean;
   canDeleteProduct: boolean;
   canCreateRelease: boolean;
   canDeleteRelease: boolean;
@@ -42,8 +43,9 @@ export const usePermissions = (members?: Array<{ user_id: string | null; role: s
     canEditWorkspace: isOwner,
     canManageMembers: isOwner,
     canAssignRoles: isOwner,
-    canCreateProduct: isOwner,
-    canDeleteProduct: isOwner,
+  canCreateProduct: isOwner,
+  canEditProduct: isOwner,
+  canDeleteProduct: isOwner,
     canCreateRelease: isOwner || isMaintainer,
     canDeleteRelease: isOwner,
     canCancelPublishedRelease: isOwner,

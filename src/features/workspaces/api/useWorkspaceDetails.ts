@@ -231,6 +231,30 @@ export const useWorkspaceActivity = (workspaceId: string) => {
   });
 };
 
+// 8a. Обновление продукта
+export const useUpdateProduct = (workspaceId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ productId, name, slug, description }: { productId: string; name: string; slug: string; description?: string | null }) => {
+      const { data, error } = await supabase
+        .from('products')
+        .update({ name, slug, description })
+        .eq('id', productId)
+        .eq('workspace_id', workspaceId)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['products', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['product', variables.productId] });
+    },
+  });
+};
+
 // 8. Удаление продукта
 export const useDeleteProduct = (workspaceId: string) => {
   const queryClient = useQueryClient();
@@ -246,9 +270,11 @@ export const useDeleteProduct = (workspaceId: string) => {
       if (error) throw new Error(error.message);
       return productId;
     },
-    onSuccess: () => {
+    onSuccess: (_data, productId) => {
       queryClient.invalidateQueries({ queryKey: ['products', workspaceId] });
       queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
+      queryClient.invalidateQueries({ queryKey: ['product', productId] });
     },
   });
 };
