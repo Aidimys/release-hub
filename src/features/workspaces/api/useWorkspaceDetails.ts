@@ -72,6 +72,9 @@ export const useWorkspaceMembers = (workspaceId: string) => {
     },
     enabled: !!workspaceId,
     retry: false,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
   });
 };
 
@@ -322,10 +325,9 @@ export const useDeleteRelease = (workspaceId: string) => {
         });
       }
     },
-    onSettled: () => {
+    onSettled: (_data, releaseId) => {
       queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['product_releases'] });
-      queryClient.invalidateQueries({ queryKey: ['release'] });
+      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
     },
   });
 };
@@ -433,7 +435,7 @@ export const useCancelPublishedRelease = (workspaceId: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ releaseId, expectedUpdatedAt }: { releaseId: string; expectedUpdatedAt?: string | null }) => {
+    mutationFn: async ({ releaseId, expectedUpdatedAt }: { releaseId: string; expectedUpdatedAt?: string | null; productId?: string }) => {
       const { data, error } = await supabase.rpc('cancel_published_release', {
         p_release_id: releaseId,
         p_expected_updated_at: expectedUpdatedAt ?? null,
@@ -448,7 +450,7 @@ export const useCancelPublishedRelease = (workspaceId: string) => {
 
       return data;
     },
-    onSuccess: (_data, { releaseId }) => {
+    onSuccess: (_data, { releaseId, productId }) => {
       queryClient.setQueryData(['release_reviewers', releaseId], (current: Array<{ decision?: string | null; decided_at?: string | null }> | undefined) => {
         if (!current) return current;
         return current.map((reviewer) => ({
@@ -459,8 +461,10 @@ export const useCancelPublishedRelease = (workspaceId: string) => {
       });
       queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
       queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['product_releases'] });
-      queryClient.invalidateQueries({ queryKey: ['release'] });
+      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      if (productId) {
+        queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
+      }
     },
   });
 };

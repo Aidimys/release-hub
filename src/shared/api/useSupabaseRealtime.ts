@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from './supabase';
+import { realtimeDedup } from './realtimeDedup';
 
 interface RealtimePayload {
   eventType?: string;
@@ -43,8 +44,7 @@ const invalidateQueryByTable = (queryClient: ReturnType<typeof useQueryClient>, 
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       break;
     default:
-      queryClient.invalidateQueries();
-      break;
+      return;
   }
 };
 
@@ -85,11 +85,6 @@ const removeItemFromAllMatchingQueries = (queryClient: ReturnType<typeof useQuer
   });
 };
 
-const removeReleaseFromListCaches = (queryClient: ReturnType<typeof useQueryClient>, releaseId: string) => {
-  removeItemFromAllMatchingQueries(queryClient, ['workspace_releases'], releaseId);
-  removeItemFromAllMatchingQueries(queryClient, ['product_releases'], releaseId);
-};
-
 export const useAppRealtime = (onUpdate?: (message: string) => void) => {
   const queryClient = useQueryClient();
 
@@ -108,37 +103,6 @@ export const useAppRealtime = (onUpdate?: (message: string) => void) => {
         }
       );
     });
-
-    channel.on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'releases' },
-      (payload) => {
-        const releasePayload = payload as { eventType?: string; new?: Record<string, unknown> | null; old?: Record<string, unknown> | null };
-        const releaseId = typeof releasePayload.new?.id === 'string'
-          ? releasePayload.new.id
-          : typeof releasePayload.old?.id === 'string'
-            ? releasePayload.old.id
-            : undefined;
-
-        if (!releaseId) return;
-
-        if (releasePayload.eventType === 'DELETE') {
-          removeReleaseFromListCaches(queryClient, releaseId);
-          queryClient.setQueryData(['release_deleted', releaseId], true);
-          queryClient.invalidateQueries({ queryKey: ['workspace_releases'] });
-          queryClient.invalidateQueries({ queryKey: ['product_releases'] });
-          queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
-          if (onUpdate) {
-            onUpdate('Релиз удалён');
-          }
-          return;
-        }
-
-        queryClient.invalidateQueries({ queryKey: ['workspace_releases'] });
-        queryClient.invalidateQueries({ queryKey: ['product_releases'] });
-        queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
-      }
-    );
 
     const subscribe = async () => {
       await channel.subscribe();
@@ -159,6 +123,16 @@ export const useWorkspaceRealtime = (workspaceId: string) => {
     if (!workspaceId) return;
 
     const channel = supabase.channel(`workspace-${workspaceId}`);
+
+    const isReleaseInWorkspace = (payload: { new?: Record<string, unknown> | null; old?: Record<string, unknown> | null }) => {
+      const incoming = payload.new ?? payload.old;
+      const productId = typeof incoming?.product_id === 'string' ? incoming.product_id : undefined;
+      if (!productId) return false;
+
+      const products = queryClient.getQueryData<Array<{ id?: unknown }>>(['products', workspaceId]);
+      if (!Array.isArray(products)) return true;
+      return products.some((product) => product.id === productId);
+    };
 
     const updateWorkspaceReleasesCache = (payload: { eventType?: string; new?: Record<string, unknown> | null; old?: Record<string, unknown> | null }) => {
       applyListChange(queryClient, ['workspace_releases', workspaceId], payload as RealtimePayload);
@@ -203,9 +177,9 @@ export const useWorkspaceRealtime = (workspaceId: string) => {
           { event: '*', schema: 'public', table: 'releases' },
           (payload) => {
             const releasePayload = payload as { eventType?: string; new?: Record<string, unknown> | null; old?: Record<string, unknown> | null };
+            if (!isReleaseInWorkspace(releasePayload)) return;
             updateWorkspaceReleasesCache(releasePayload);
             queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
-            queryClient.refetchQueries({ queryKey: ['workspace_releases', workspaceId] });
           }
         );
 
@@ -239,21 +213,22 @@ export const useReleaseRealtime = (releaseId: string, workspaceId?: string) => {
           { event: '*', schema: 'public', table: 'releases', filter: `id=eq.${releaseId}` },
           (payload: RealtimePayload) => {
             if (payload.eventType === 'DELETE') {
-              queryClient.setQueryData(['release', releaseId], undefined);
+              queryClient.setQueryData(['release', releaseId], null);
               queryClient.setQueryData(['release_deleted', releaseId], true);
               if (workspaceId) {
                 removeItemFromAllMatchingQueries(queryClient, ['workspace_releases', workspaceId], releaseId);
                 queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
-                queryClient.refetchQueries({ queryKey: ['workspace_releases', workspaceId] });
               }
               const productId = typeof payload.old?.product_id === 'string' ? payload.old.product_id : undefined;
               if (productId) {
                 removeItemFromAllMatchingQueries(queryClient, ['product_releases', productId], releaseId);
                 queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
-                queryClient.refetchQueries({ queryKey: ['product_releases', productId] });
               }
               return;
             }
+
+            const nextStatus = typeof payload.new?.status === 'string' ? payload.new.status : undefined;
+            if (nextStatus && realtimeDedup.consumeIfOwn('releases', releaseId, nextStatus)) return;
 
             queryClient.setQueryData(['release_deleted', releaseId], false);
             queryClient.setQueryData(['release', releaseId], (current: ReleaseRecord | undefined) => {
@@ -272,6 +247,9 @@ export const useReleaseRealtime = (releaseId: string, workspaceId?: string) => {
           (payload: RealtimePayload) => {
             const incoming = payload.new ?? payload.old;
             if (typeof incoming?.position === 'number' && incoming.position < 0) return;
+            const changeId = typeof incoming?.id === 'string' ? incoming.id : undefined;
+            const position = typeof incoming?.position === 'number' ? incoming.position : undefined;
+            if (changeId && position !== undefined && realtimeDedup.consumeIfOwn('release_changes', changeId, position)) return;
             applyListChangeForRelease(['release_changes', releaseId], payload);
           }
         )
@@ -319,42 +297,13 @@ export const useProductReleasesRealtime = (productId: string) => {
 
     const channel = supabase.channel(`product-releases-${productId}`);
 
-    const updateProductReleasesCache = (payload: { eventType?: string; new?: Record<string, unknown> | null; old?: Record<string, unknown> | null }) => {
-      queryClient.setQueryData(['product_releases', productId], (current: Array<Record<string, unknown>> | undefined) => {
-        if (!current) return current;
-
-        const incoming = payload.new ?? payload.old;
-        const incomingId = typeof incoming?.id === 'string' ? incoming.id : undefined;
-
-        if (!incomingId) return current;
-
-        if (payload.eventType === 'DELETE') {
-          const oldId = typeof payload.old?.id === 'string' ? payload.old.id : undefined;
-          return current.filter((item) => item.id !== oldId);
-        }
-
-        const existingIndex = current.findIndex((item) => item.id === incomingId);
-        const nextItem = { ...(incoming ?? {}) } as Record<string, unknown>;
-
-        if (existingIndex >= 0) {
-          const updated = [...current];
-          updated[existingIndex] = { ...updated[existingIndex], ...nextItem };
-          return updated;
-        }
-
-        return [nextItem, ...current];
-      });
-    };
-
     const subscribe = async () => {
       channel.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'releases', filter: `product_id=eq.${productId}` },
         (payload) => {
-          const releasePayload = payload as { eventType?: string; new?: Record<string, unknown> | null; old?: Record<string, unknown> | null };
-          updateProductReleasesCache(releasePayload);
+          applyListChange(queryClient, ['product_releases', productId], payload as RealtimePayload);
           queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
-          queryClient.refetchQueries({ queryKey: ['product_releases', productId] });
         }
       );
 

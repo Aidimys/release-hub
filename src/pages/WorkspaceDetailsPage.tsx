@@ -5,6 +5,7 @@ import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, u
 import { usePermissions } from '../features/workspaces/api/usePermissions';
 import { useWorkspaceRealtime } from '../shared/api/useSupabaseRealtime';
 import { supabase } from '../shared/api/supabase';
+import { useQueryClient } from '@tanstack/react-query';
 import { CreateProductModal } from '../features/auth/ui/CreateProductModal';
 import { EditProductModal } from '../features/workspaces/ui/EditProductModal';
 import { DeleteConfirmModal } from '../features/workspaces/ui/DeleteConfirmModal';
@@ -100,6 +101,7 @@ export const WorkspaceDetailsPage = () => {
   const resendInvite = useResendInvite(workspaceId);
 
   const permissions = usePermissions(members);
+  const queryClient = useQueryClient();
 
   const statusFilter = searchParams.get('status') ?? 'all';
   const searchFilter = searchParams.get('search') ?? '';
@@ -198,6 +200,11 @@ export const WorkspaceDetailsPage = () => {
       });
 
       if (error) throw new Error(error.message);
+      queryClient.setQueryData<WorkspaceMember[]>(['workspace_members', workspaceId], (current) => {
+        if (!current) return current;
+        return current.map((m) => (m.user_id === memberUserId ? { ...m, role: nextRole } : m));
+      });
+      await queryClient.invalidateQueries({ queryKey: ['workspace_members', workspaceId] });
       setMemberError(null);
     } catch (err) {
       setMemberError((err as Error)?.message || 'Не удалось обновить роль');
@@ -220,6 +227,11 @@ export const WorkspaceDetailsPage = () => {
       });
 
       if (error) throw new Error(error.message);
+      queryClient.setQueryData<WorkspaceMember[]>(['workspace_members', workspaceId], (current) => {
+        if (!current) return current;
+        return current.filter((m) => m.user_id !== memberUserId);
+      });
+      await queryClient.invalidateQueries({ queryKey: ['workspace_members', workspaceId] });
       setMemberError(null);
     } catch (err) {
       setMemberError((err as Error)?.message || 'Не удалось удалить участника');

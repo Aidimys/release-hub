@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../shared/api/supabase';
+import { realtimeDedup } from '../../../shared/api/realtimeDedup';
 import type { Json } from '../../../shared/api/database.types';
 
 interface ReleaseChangePayload {
@@ -82,6 +83,7 @@ export const useReleaseChanges = (releaseId: string) => {
           position,
           created_by,
           created_at,
+          updated_at,
           profiles (display_name)
         `)
         .eq('release_id', releaseId)
@@ -134,6 +136,7 @@ export const useReleaseComments = (releaseId: string) => {
           id,
           content,
           created_at,
+          updated_at,
           user_id,
           profiles (display_name, avatar_url)
         `)
@@ -260,6 +263,10 @@ export const useReorderReleaseChanges = (releaseId: string) => {
         return updatedItem ? { ...change, position: updatedItem.position } : change;
       }).sort((a, b) => a.position - b.position);
 
+      items.forEach((item) => {
+        realtimeDedup.markOwn('release_changes', item.id, item.position);
+      });
+
       queryClient.setQueryData(['release_changes', releaseId], nextChanges);
 
       return { previousChanges };
@@ -286,11 +293,11 @@ export const useSubmitReleaseForReview = () => {
       if (error) throw new Error(error.message);
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release'] });
-      queryClient.invalidateQueries({ queryKey: ['release_reviewers'] });
-      queryClient.invalidateQueries({ queryKey: ['release_changes'] });
-      queryClient.invalidateQueries({ queryKey: ['release_activity'] });
+    onSuccess: (_data, { releaseId }) => {
+      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release_activity', releaseId] });
     },
   });
 };
@@ -309,10 +316,10 @@ export const useCastReleaseVote = () => {
       if (error) throw new Error(error.message);
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release'] });
-      queryClient.invalidateQueries({ queryKey: ['release_reviewers'] });
-      queryClient.invalidateQueries({ queryKey: ['release_activity'] });
+    onSuccess: (_data, { releaseId }) => {
+      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release_activity', releaseId] });
     },
   });
 };
@@ -330,11 +337,9 @@ export const usePublishRelease = () => {
       if (error) throw new Error(error.message);
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release'] });
-      queryClient.invalidateQueries({ queryKey: ['release_changes'] });
-      queryClient.invalidateQueries({ queryKey: ['workspace_releases'] });
-      queryClient.invalidateQueries({ queryKey: ['product_releases'] });
+    onSuccess: (_data, { releaseId }) => {
+      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
     },
   });
 };
@@ -352,14 +357,14 @@ export const useReturnRejectedReleaseToDraft = () => {
       if (error) throw new Error(error.message);
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release'] });
-      queryClient.invalidateQueries({ queryKey: ['release_reviewers'] });
+    onSuccess: (_data, { releaseId }) => {
+      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
     },
   });
 };
 
-export const useUpdateReleaseChange = () => {
+export const useUpdateReleaseChange = (releaseId: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -376,13 +381,13 @@ export const useUpdateReleaseChange = () => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release_changes'] });
-      queryClient.invalidateQueries({ queryKey: ['release'] });
+      queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
     },
   });
 };
 
-export const useUpdateReleaseComment = () => {
+export const useUpdateReleaseComment = (releaseId: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -397,9 +402,9 @@ export const useUpdateReleaseComment = () => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release_comments'] });
-      queryClient.invalidateQueries({ queryKey: ['release_activity'] });
-      queryClient.invalidateQueries({ queryKey: ['release'] });
+      queryClient.invalidateQueries({ queryKey: ['release_comments', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release_activity', releaseId] });
+      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
     },
   });
 };

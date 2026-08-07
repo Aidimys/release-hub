@@ -26,6 +26,7 @@ import {
 } from '../features/workspaces/api/useReleaseDetails';
 import { supabase } from '../shared/api/supabase';
 import { useReleaseRealtime } from '../shared/api/useSupabaseRealtime';
+import { realtimeDedup } from '../shared/api/realtimeDedup';
 
 const createReleaseChangeSchema = z.object({
   category: z.enum(['feature', 'improvement', 'bugfix', 'security', 'breaking']),
@@ -42,6 +43,7 @@ interface ReleaseChangeItem {
   description: string;
   position: number;
   created_by: string | null;
+  updated_at?: string | null;
   authorName?: string | null;
 }
 
@@ -59,6 +61,7 @@ interface ReleaseCommentItem {
   id: string;
   content?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
   user_id?: string | null;
   profiles?: {
     display_name?: string | null;
@@ -160,8 +163,8 @@ export const ReleaseDetailsPage = () => {
   const castVote = useCastReleaseVote();
   const publishRelease = usePublishRelease();
   const returnToDraft = useReturnRejectedReleaseToDraft();
-  const updateReleaseChange = useUpdateReleaseChange();
-  const updateReleaseComment = useUpdateReleaseComment();
+  const updateReleaseChange = useUpdateReleaseChange(resolvedReleaseId);
+  const updateReleaseComment = useUpdateReleaseComment(resolvedReleaseId);
 
   const { data: workspaceMembers } = useWorkspaceMembers(resolvedWorkspaceId);
   const permissions = usePermissions(workspaceMembers);
@@ -272,9 +275,14 @@ export const ReleaseDetailsPage = () => {
   ) => {
     setErrorText(null);
 
-    if (!options?.skipPermissionCheck && !permissions.canEditRelease) {
-      setErrorText('У вас нет прав изменять статус релиза');
-      return;
+    if (!options?.skipPermissionCheck) {
+      await queryClient.refetchQueries({ queryKey: ['workspace_members', resolvedWorkspaceId] });
+      const freshMembers = queryClient.getQueryData<Array<{ user_id: string | null; role: string }>>(['workspace_members', resolvedWorkspaceId]);
+      const myRole = freshMembers?.find((m) => m.user_id === user?.id)?.role ?? 'contributor';
+      if (myRole !== 'owner' && myRole !== 'maintainer') {
+        setErrorText('У вас нет прав изменять статус релиза');
+        return;
+      }
     }
 
     if (!canTransitionToStatus(releaseStatus as 'draft' | 'review' | 'approved' | 'rejected' | 'published', nextStatus)) {
@@ -336,6 +344,7 @@ export const ReleaseDetailsPage = () => {
       };
     });
     setOptimisticReleaseStatus(nextStatus);
+    realtimeDedup.markOwn('releases', resolvedReleaseId, nextStatus);
 
     if (resolvedWorkspaceId) {
       updateReleaseListCache(['workspace_releases', resolvedWorkspaceId], nextStatus, publishedAt);
@@ -380,6 +389,7 @@ export const ReleaseDetailsPage = () => {
 
       setErrorText(null);
       await queryClient.invalidateQueries({ queryKey: ['release', resolvedReleaseId] });
+      await queryClient.refetchQueries({ queryKey: ['release', resolvedReleaseId] });
       if (resolvedWorkspaceId) {
         await queryClient.invalidateQueries({ queryKey: ['workspace_releases', resolvedWorkspaceId] });
         await queryClient.refetchQueries({ queryKey: ['workspace_releases', resolvedWorkspaceId] });
@@ -388,6 +398,7 @@ export const ReleaseDetailsPage = () => {
         await queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
         await queryClient.refetchQueries({ queryKey: ['product_releases', productId] });
       }
+      setOptimisticReleaseStatus(null);
     } catch (error: unknown) {
       rollbackOptimistic();
       setErrorText(getErrorMessage(error) || 'Не удалось сменить статус релиза');
@@ -412,6 +423,7 @@ export const ReleaseDetailsPage = () => {
       await cancelPublishedRelease.mutateAsync({
         releaseId: resolvedReleaseId,
         expectedUpdatedAt: release?.updated_at ?? null,
+        productId: release?.products?.id ?? undefined,
       });
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось отменить публикацию релиза');
@@ -481,10 +493,11 @@ export const ReleaseDetailsPage = () => {
     setErrorText(null);
 
     try {
+      const comment = comments?.find((c) => c.id === editingCommentId);
       await updateReleaseComment.mutateAsync({
         commentId: editingCommentId,
         content: editingCommentText.trim(),
-        expectedUpdatedAt: release?.updated_at ?? null,
+        expectedUpdatedAt: comment?.updated_at ?? null,
       });
       setEditingCommentId(null);
       setEditingCommentText('');
@@ -519,8 +532,14 @@ export const ReleaseDetailsPage = () => {
         setOptimisticReleaseStatus(newStatus as 'draft' | 'review' | 'approved' | 'rejected' | 'published');
       }
 
+      await queryClient.invalidateQueries({ queryKey: ['release', resolvedReleaseId] });
+      await queryClient.refetchQueries({ queryKey: ['release', resolvedReleaseId] });
+      setOptimisticReleaseStatus(null);
+
       await queryClient.invalidateQueries({ queryKey: ['release_reviewers', resolvedReleaseId] });
+      await queryClient.refetchQueries({ queryKey: ['release_reviewers', resolvedReleaseId] });
       await queryClient.invalidateQueries({ queryKey: ['release_activity', resolvedReleaseId] });
+      await queryClient.refetchQueries({ queryKey: ['release_activity', resolvedReleaseId] });
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось сохранить голос');
     }
@@ -596,12 +615,13 @@ export const ReleaseDetailsPage = () => {
     setErrorText(null);
 
     try {
+      const change = changes?.find((c) => c.id === editingChangeId);
       await updateReleaseChange.mutateAsync({
         changeId: editingChangeId,
         category: editingChangeForm.category,
         title: editingChangeForm.title.trim(),
         description: editingChangeForm.description.trim(),
-        expectedUpdatedAt: release?.updated_at ?? null,
+        expectedUpdatedAt: change?.updated_at ?? null,
       });
       setEditingChangeId(null);
     } catch (error: unknown) {

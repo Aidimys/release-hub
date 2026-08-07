@@ -87,6 +87,7 @@ export const ProductDetailsPage = () => {
       await cancelPublishedRelease.mutateAsync({
         releaseId,
         expectedUpdatedAt: updatedAt ?? null,
+        productId: resolvedProductId,
       });
     } catch (error) {
       window.alert((error as Error)?.message || 'Не удалось отменить публикацию релиза');
