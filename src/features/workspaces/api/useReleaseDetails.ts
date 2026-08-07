@@ -237,16 +237,17 @@ export const useReorderReleaseChanges = (releaseId: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (items: ReleaseChangeOrderItem[]) => {
+    mutationFn: async ({ items, expectedUpdatedAt }: { items: ReleaseChangeOrderItem[]; expectedUpdatedAt?: string | null }) => {
       const { data, error } = await supabase.rpc('reorder_release_changes', {
         p_release_id: releaseId,
         p_items: items as unknown as Json,
+        p_expected_updated_at: expectedUpdatedAt ?? undefined,
       });
 
       if (error) throw new Error(error.message);
       return data;
     },
-    onMutate: async (items) => {
+    onMutate: async ({ items }: { items: ReleaseChangeOrderItem[] }) => {
       await queryClient.cancelQueries({ queryKey: ['release_changes', releaseId] });
 
       const previousChanges = queryClient.getQueryData<Array<{ id: string; position: number; [key: string]: unknown }>>([
@@ -263,7 +264,7 @@ export const useReorderReleaseChanges = (releaseId: string) => {
 
       return { previousChanges };
     },
-    onError: (_error, _items, context) => {
+    onError: (_error, _variables, context) => {
       if (context?.previousChanges) {
         queryClient.setQueryData(['release_changes', releaseId], context.previousChanges);
       }
@@ -362,12 +363,14 @@ export const useUpdateReleaseChange = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ changeId, category, title, description }: { changeId: string; category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string }) => {
-      const { data, error } = await supabase
-        .from('release_changes')
-        .update({ category, title, description, updated_at: new Date().toISOString() })
-        .eq('id', changeId)
-        .select();
+    mutationFn: async ({ changeId, category, title, description, expectedUpdatedAt }: { changeId: string; category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string; expectedUpdatedAt?: string | null }) => {
+      const { data, error } = await supabase.rpc('update_release_change', {
+        p_change_id: changeId,
+        p_category: category,
+        p_title: title,
+        p_description: description,
+        p_expected_updated_at: expectedUpdatedAt ?? undefined,
+      });
 
       if (error) throw new Error(error.message);
       return data;
@@ -383,12 +386,12 @@ export const useUpdateReleaseComment = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ commentId, content }: { commentId: string; content: string }) => {
-      const { data, error } = await supabase
-        .from('comments')
-        .update({ content, updated_at: new Date().toISOString() })
-        .eq('id', commentId)
-        .select();
+    mutationFn: async ({ commentId, content, expectedUpdatedAt }: { commentId: string; content: string; expectedUpdatedAt?: string | null }) => {
+      const { data, error } = await supabase.rpc('update_release_comment', {
+        p_comment_id: commentId,
+        p_content: content,
+        p_expected_updated_at: expectedUpdatedAt ?? undefined,
+      });
 
       if (error) throw new Error(error.message);
       return data;

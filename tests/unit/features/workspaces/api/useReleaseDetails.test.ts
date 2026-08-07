@@ -31,10 +31,13 @@ describe('useReorderReleaseChanges', () => {
 
     await expect(
       act(async () => {
-        await result.current.mutateAsync([
-          { id: 'b', position: 0 },
-          { id: 'a', position: 1 },
-        ]);
+        await result.current.mutateAsync({
+          items: [
+            { id: 'b', position: 0 },
+            { id: 'a', position: 1 },
+          ],
+          expectedUpdatedAt: null,
+        });
       })
     ).rejects.toThrow('Server failure');
 

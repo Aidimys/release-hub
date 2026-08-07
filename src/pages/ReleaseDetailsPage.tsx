@@ -484,6 +484,7 @@ export const ReleaseDetailsPage = () => {
       await updateReleaseComment.mutateAsync({
         commentId: editingCommentId,
         content: editingCommentText.trim(),
+        expectedUpdatedAt: release?.updated_at ?? null,
       });
       setEditingCommentId(null);
       setEditingCommentText('');
@@ -545,7 +546,7 @@ export const ReleaseDetailsPage = () => {
     const reorderedItems = next.map((item, index) => ({ id: item.id, position: index }));
 
     try {
-      await reorderReleaseChanges.mutateAsync(reorderedItems);
+      await reorderReleaseChanges.mutateAsync({ items: reorderedItems, expectedUpdatedAt: release?.updated_at ?? null });
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось сохранить порядок изменений');
     } finally {
@@ -600,6 +601,7 @@ export const ReleaseDetailsPage = () => {
         category: editingChangeForm.category,
         title: editingChangeForm.title.trim(),
         description: editingChangeForm.description.trim(),
+        expectedUpdatedAt: release?.updated_at ?? null,
       });
       setEditingChangeId(null);
     } catch (error: unknown) {
