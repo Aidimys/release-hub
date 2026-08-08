@@ -17,6 +17,12 @@ export const QueryProvider = ({ children }: { children: ReactNode }) => {
             retry: 1,
             refetchOnWindowFocus: false,
           },
+          mutations: {
+            onError: (error: unknown) => {
+              const message = error instanceof Error ? error.message : 'Неизвестная ошибка';
+              console.error('[Mutation]', message);
+            },
+          },
         },
       })
   );

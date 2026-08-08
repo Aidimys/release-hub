@@ -9,6 +9,7 @@ import { ProductDetailsPage } from '../../pages/ProductDetailsPage';
 import { PublicReleaseNotesPage } from '../../pages/PublicReleaseNotesPage';
 import { AcceptInvitePage } from '../../pages/AcceptInvitePage';
 import { NotFoundPage } from '../../pages/NotFoundPage';
+import { ForbiddenPage } from '../../pages/ForbiddenPage';
 
 import { ForgotPasswordPage } from '../../pages/ForgotPasswordPage';
 import { ResetPasswordPage } from '../../pages/ResetPasswordPage';
@@ -17,7 +18,7 @@ export const AppRouter = () => {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Публичные маршруты */}
+        {/* Публические маршруты */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -31,10 +32,14 @@ export const AppRouter = () => {
           <Route path="/workspaces/:workspaceId" element={<WorkspaceDetailsPage />} />
           <Route path="/workspaces/:workspaceId/products/:productId" element={<ProductDetailsPage />} />
           <Route path="/workspaces/:workspaceId/releases/:releaseId" element={<ReleaseDetailsPage />} />
+          <Route path="/forbidden" element={<ForbiddenPage />} />
         </Route>
 
         {/* Редирект с корня на воркспейсы */}
         <Route path="/" element={<Navigate to="/workspaces" replace />} />
+
+        {/* 403 Ошибка */}
+        <Route path="/403" element={<ForbiddenPage />} />
 
         {/* 404 Ошибка */}
         <Route path="*" element={<NotFoundPage />} />

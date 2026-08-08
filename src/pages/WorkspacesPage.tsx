@@ -4,6 +4,8 @@ import { useAuth } from '../app/providers/AuthProvider';
 import { useDeleteWorkspace, useUpdateWorkspace, useWorkspaces } from '../features/workspaces/api/useWorkspaces';
 import { CreateWorkspaceModal } from '../features/auth/ui/CreateWorkspaceModal';
 import { EditWorkspaceModal } from '../features/workspaces/ui/EditWorkspaceModal';
+import { DeleteConfirmModal } from '../features/workspaces/ui/DeleteConfirmModal';
+import { useToast } from '../app/hooks/useToast';
 
 interface WorkspaceListItem {
   id: string;
@@ -15,13 +17,13 @@ interface WorkspaceListItem {
 export const WorkspacesPage = () => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
+  const { showToast } = useToast();
   const { data: workspaces, isLoading, isError, error, refetch } = useWorkspaces();
   const updateWorkspace = useUpdateWorkspace();
   const deleteWorkspace = useDeleteWorkspace();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWorkspace, setEditingWorkspace] = useState<WorkspaceListItem | null>(null);
   const [workspaceToDelete, setWorkspaceToDelete] = useState<WorkspaceListItem | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
 
   const normalizedWorkspaces = useMemo(() => {
     return (workspaces ?? []).map((workspace: WorkspaceListItem) => ({
@@ -63,24 +65,9 @@ export const WorkspacesPage = () => {
           </button>
         </div>
 
-        {feedback && (
-          <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-            {feedback}
-          </div>
-        )}
-
-        {/* Состояние загрузки (Loading) */}
-        {isLoading && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[1, 2, 3].map((n) => (
-              <div key={n} className="h-32 bg-gray-200 animate-pulse rounded-xl" />
-            ))}
-          </div>
-        )}
-
-        {/* Состояние ошибки (Error) */}
+        {/* Уведомления об ошибках */}
         {isError && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex justify-between items-center">
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex justify-between items-center">
             <p>Ошибка загрузки: {(error as Error).message}</p>
             <button
               onClick={() => refetch()}
@@ -88,6 +75,13 @@ export const WorkspacesPage = () => {
             >
               Повторить
             </button>
+          </div>
+        )}
+        {isLoading && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[1, 2, 3].map((n) => (
+              <div key={n} className="h-32 bg-gray-200 animate-pulse rounded-xl" />
+            ))}
           </div>
         )}
 
@@ -174,47 +168,32 @@ export const WorkspacesPage = () => {
           try {
             await updateWorkspace.mutateAsync({ id: editingWorkspace.id, name });
             setEditingWorkspace(null);
-            setFeedback('Рабочее пространство обновлено');
+            showToast('Рабочее пространство обновлено', 'success');
           } catch (error) {
-            setFeedback(error instanceof Error ? error.message : 'Не удалось обновить пространство');
+            showToast(error instanceof Error ? error.message : 'Не удалось обновить пространство', 'error');
           }
         }}
       />
 
       {workspaceToDelete && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-gray-100">
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Удалить пространство?</h3>
-            <p className="text-sm text-gray-600 mb-6">
-              Это действие удалит пространство и связанные данные. Вы уверены, что хотите продолжить?
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setWorkspaceToDelete(null)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await deleteWorkspace.mutateAsync(workspaceToDelete.id);
-                    setWorkspaceToDelete(null);
-                    setFeedback('Рабочее пространство удалено');
-                  } catch (error) {
-                    setWorkspaceToDelete(null);
-                    setFeedback(error instanceof Error ? error.message : 'Не удалось удалить пространство');
-                  }
-                }}
-                className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700"
-              >
-                {deleteWorkspace.isPending ? 'Удаление...' : 'Удалить'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteConfirmModal
+          isOpen={!!workspaceToDelete}
+          title="Удалить пространство?"
+          message={`Это действие удалит пространство «${workspaceToDelete.name}» и все связанные данные. Вы уверены, что хотите продолжить?`}
+          confirmLabel="Удалить"
+          danger
+          onConfirm={async () => {
+            try {
+              await deleteWorkspace.mutateAsync(workspaceToDelete.id);
+              setWorkspaceToDelete(null);
+              showToast('Рабочее пространство удалено', 'success');
+            } catch (error) {
+              setWorkspaceToDelete(null);
+              showToast(error instanceof Error ? error.message : 'Не удалось удалить пространство', 'error');
+            }
+          }}
+          onClose={() => setWorkspaceToDelete(null)}
+        />
       )}
     </div>
   );

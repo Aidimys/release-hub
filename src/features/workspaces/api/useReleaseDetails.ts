@@ -31,6 +31,7 @@ interface ReleaseChangeRow {
   position: number;
   created_by: string | null;
   created_at: string;
+  updated_at: string;
   profiles?: {
     display_name?: string | null;
   } | null;

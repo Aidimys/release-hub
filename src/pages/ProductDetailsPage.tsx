@@ -8,6 +8,7 @@ import { useProductDetails, useProductReleases, useWorkspaceMembers } from '../f
 import { useProductReleasesRealtime } from '../shared/api/useSupabaseRealtime';
 import { EditProductModal } from '../features/workspaces/ui/EditProductModal';
 import { DeleteConfirmModal } from '../features/workspaces/ui/DeleteConfirmModal';
+import { useToast } from '../app/hooks/useToast';
 
 interface ProductRelease {
   id: string;
@@ -38,9 +39,12 @@ export const ProductDetailsPage = () => {
   const { workspaceId, productId } = useParams<{ workspaceId: string; productId: string }>();
   const navigate = useNavigate();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { showToast } = useToast();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [releaseToDelete, setReleaseToDelete] = useState<string | null>(null);
+  const [releaseToCancel, setReleaseToCancel] = useState<{ releaseId: string; updatedAt?: string | null } | null>(null);
 
   const resolvedWorkspaceId = workspaceId ?? '';
   const resolvedProductId = productId ?? '';
@@ -71,26 +75,29 @@ export const ProductDetailsPage = () => {
   useProductReleasesRealtime(resolvedProductId);
 
   const handleDeleteRelease = async (releaseId: string) => {
-    if (!window.confirm('Удалить релиз?')) return;
-
     try {
       await deleteRelease.mutateAsync(releaseId);
+      showToast('Релиз удалён', 'success');
     } catch (error) {
-      window.alert((error as Error)?.message || 'Не удалось удалить релиз');
+      showToast((error as Error)?.message || 'Не удалось удалить релиз', 'error');
+    } finally {
+      setReleaseToDelete(null);
     }
   };
 
-  const handleCancelPublishedRelease = async (releaseId: string, updatedAt?: string | null) => {
-    if (!window.confirm('Отменить публикацию релиза?')) return;
-
+  const handleCancelPublishedRelease = async () => {
+    if (!releaseToCancel) return;
     try {
       await cancelPublishedRelease.mutateAsync({
-        releaseId,
-        expectedUpdatedAt: updatedAt ?? null,
+        releaseId: releaseToCancel.releaseId,
+        expectedUpdatedAt: releaseToCancel.updatedAt ?? null,
         productId: resolvedProductId,
       });
+      showToast('Публикация отменена', 'success');
     } catch (error) {
-      window.alert((error as Error)?.message || 'Не удалось отменить публикацию релиза');
+      showToast((error as Error)?.message || 'Не удалось отменить публикацию релиза', 'error');
+    } finally {
+      setReleaseToCancel(null);
     }
   };
 
@@ -98,8 +105,9 @@ export const ProductDetailsPage = () => {
     if (!resolvedProductId) return;
     try {
       await updateProduct.mutateAsync({ productId: resolvedProductId, ...data });
+      showToast('Продукт обновлён', 'success');
     } catch (error) {
-      window.alert((error as Error)?.message || 'Не удалось обновить продукт');
+      showToast((error as Error)?.message || 'Не удалось обновить продукт', 'error');
     }
   };
 
@@ -242,7 +250,7 @@ export const ProductDetailsPage = () => {
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            void handleCancelPublishedRelease(release.id, release.updated_at ?? null);
+                            setReleaseToCancel({ releaseId: release.id, updatedAt: release.updated_at ?? null });
                           }}
                           disabled={cancelPublishedRelease.isPending}
                           className="px-3 py-1.5 text-xs font-medium rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50"
@@ -255,7 +263,7 @@ export const ProductDetailsPage = () => {
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            void handleDeleteRelease(release.id);
+                            setReleaseToDelete(release.id);
                           }}
                           disabled={deleteRelease.isPending}
                           className="px-3 py-1.5 text-xs font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
@@ -302,6 +310,30 @@ export const ProductDetailsPage = () => {
           danger
           onConfirm={() => deleteProduct.mutate(resolvedProductId)}
           onClose={() => setIsDeleteModalOpen(false)}
+        />
+      )}
+
+      {releaseToDelete && (
+        <DeleteConfirmModal
+          isOpen={!!releaseToDelete}
+          title="Удалить релиз?"
+          message="Вы уверены, что хотите удалить этот релиз? Это действие необратимо."
+          confirmLabel="Удалить"
+          danger
+          onConfirm={() => handleDeleteRelease(releaseToDelete)}
+          onClose={() => setReleaseToDelete(null)}
+        />
+      )}
+
+      {releaseToCancel && (
+        <DeleteConfirmModal
+          isOpen={!!releaseToCancel}
+          title="Отменить публикацию релиза?"
+          message="Вы уверены, что хотите отменить публикацию этого релиза? Статус будет возвращён в approved."
+          confirmLabel="Отменить публикацию"
+          danger={false}
+          onConfirm={handleCancelPublishedRelease}
+          onClose={() => setReleaseToCancel(null)}
         />
       )}
     </div>
