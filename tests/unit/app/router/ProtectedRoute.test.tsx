@@ -12,7 +12,7 @@ const mockedUseAuth = vi.mocked(useAuth);
 
 describe('ProtectedRoute', () => {
   it('redirects unauthenticated users to login', () => {
-    mockedUseAuth.mockReturnValue({ session: null, isLoading: false, user: null, signOut: async () => {} } as any);
+    mockedUseAuth.mockReturnValue({ session: null, user: null, isLoading: false, signOut: async () => {} });
 
     render(
       <MemoryRouter initialEntries={['/workspaces']}>
@@ -30,11 +30,11 @@ describe('ProtectedRoute', () => {
 
   it('renders protected content when authenticated', () => {
     mockedUseAuth.mockReturnValue({
-      session: { user: { id: 'u1' } },
+      session: { user: { id: 'u1', app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '2024-01-01T00:00:00Z' }, access_token: 'token', refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer' },
+      user: { id: 'u1', app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '2024-01-01T00:00:00Z' },
       isLoading: false,
-      user: { id: 'u1' },
       signOut: async () => {},
-    } as any);
+    });
 
     render(
       <MemoryRouter initialEntries={['/workspaces']}>

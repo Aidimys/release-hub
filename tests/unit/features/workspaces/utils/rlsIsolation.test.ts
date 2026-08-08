@@ -11,7 +11,7 @@ const mockedUseAuth = vi.mocked(useAuth);
 
 describe('usePermissions RLS isolation between workspaces', () => {
   it('treats a user as contributor when not a member of the workspace', () => {
-    mockedUseAuth.mockReturnValue({ user: { id: 'u1' } } as any);
+    mockedUseAuth.mockReturnValue({ session: null, user: { id: 'u1', app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '2024-01-01T00:00:00Z' }, isLoading: false, signOut: async () => {} });
     const { result } = renderHook(() =>
       usePermissions([{ user_id: 'u2', role: 'owner' }]),
     );
@@ -21,7 +21,7 @@ describe('usePermissions RLS isolation between workspaces', () => {
   });
 
   it('grants owner privileges only for the user in the owner workspace member record', () => {
-    mockedUseAuth.mockReturnValue({ user: { id: 'u1' } } as any);
+    mockedUseAuth.mockReturnValue({ session: null, user: { id: 'u1', app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '2024-01-01T00:00:00Z' }, isLoading: false, signOut: async () => {} });
     const { result } = renderHook(() =>
       usePermissions([{ user_id: 'u1', role: 'owner' }]),
     );
@@ -32,7 +32,7 @@ describe('usePermissions RLS isolation between workspaces', () => {
   });
 
   it('does not grant owner privileges when another user is owner', () => {
-    mockedUseAuth.mockReturnValue({ user: { id: 'u2' } } as any);
+    mockedUseAuth.mockReturnValue({ session: null, user: { id: 'u2', app_metadata: {}, user_metadata: {}, aud: 'authenticated', created_at: '2024-01-01T00:00:00Z' }, isLoading: false, signOut: async () => {} });
     const { result } = renderHook(() =>
       usePermissions([{ user_id: 'u1', role: 'owner' }]),
     );
