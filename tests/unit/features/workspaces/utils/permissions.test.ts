@@ -10,7 +10,7 @@ vi.mock('@/app/providers/AuthProvider', () => ({
 const mockedUseAuth = vi.mocked(useAuth);
 
 const renderPermissions = (members?: Array<{ user_id: string | null; role: string }>, userId?: string | null) => {
-  mockedUseAuth.mockReturnValue({ user: userId ? { id: userId } : null });
+  mockedUseAuth.mockReturnValue({ user: userId ? { id: userId } : null } as any);
   return renderHook(() => usePermissions(members));
 };
 

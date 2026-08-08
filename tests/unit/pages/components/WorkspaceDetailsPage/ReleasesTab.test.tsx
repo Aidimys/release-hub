@@ -4,6 +4,21 @@ import { ReleasesTab } from '@/pages/components/WorkspaceDetailsPage/ReleasesTab
 import type { ReleasesTabProps } from '@/features/workspaces/hooks/useWorkspaceDetailsPage';
 
 const baseProps: ReleasesTabProps = {
+  releases: [
+    {
+      id: 'r1',
+      version: '1.0.0',
+      title: 'Release 1.0',
+      status: 'draft',
+      updated_at: '2026-08-01T00:00:00Z',
+      planned_at: null,
+      published_at: null,
+      products: { id: 'p1', name: 'Test Product', workspace_id: 'w1' },
+    },
+  ],
+  isReleasesLoading: false,
+  isReleasesError: false,
+  releasesError: null,
   filteredReleases: [
     {
       id: 'r1',
