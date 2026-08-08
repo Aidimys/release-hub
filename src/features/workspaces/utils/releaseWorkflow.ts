@@ -1,4 +1,6 @@
-export type ReleaseStatus = 'draft' | 'review' | 'approved' | 'rejected' | 'published';
+import type { Database } from '../../../shared/api/database.types';
+
+export type ReleaseStatus = Database['public']['Enums']['release_status'];
 
 export interface ReleaseWorkflowValidationResult {
   isValid: boolean;

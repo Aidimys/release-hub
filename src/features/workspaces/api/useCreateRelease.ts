@@ -1,12 +1,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../shared/api/supabase';
 
+import type { Database } from '../../../shared/api/database.types';
+
 interface CreateReleasePayload {
   productId: string;
   version: string;
   title: string;
   description?: string;
-  status?: 'draft' | 'review' | 'approved' | 'rejected' | 'published';
+  status?: Database['public']['Enums']['release_status'];
   plannedAt?: string | null;
   createdBy?: string | null;
 }

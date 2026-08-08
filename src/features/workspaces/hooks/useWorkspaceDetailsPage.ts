@@ -5,6 +5,7 @@ import { useAuth } from '../../../app/providers/AuthProvider';
 import { useChangeMemberRole, useRemoveMember, useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useWorkspaceActivity, useWorkspaceInvites, useCreateInvite, useRevokeInvite, useResendInvite, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, useUpdateProduct, type WorkspaceMember, type WorkspaceInvite } from '../../../features/workspaces/api/useWorkspaceDetails';
 import { usePermissions } from '../../../features/workspaces/api/usePermissions';
 import { useWorkspaceRealtime } from '../../../shared/api/useSupabaseRealtime';
+import type { Database } from '../../../shared/api/database.types';
 import type { ReleaseStatus } from '../../../features/workspaces/utils/releaseWorkflow';
 import type { User } from '@supabase/supabase-js';
 
@@ -60,8 +61,8 @@ export interface UseWorkspaceDetailsPageReturn {
   setActiveTab: (tab: Tab) => void;
   memberEmail: string;
   setMemberEmail: (email: string) => void;
-  memberRole: 'owner' | 'maintainer' | 'contributor';
-  setMemberRole: (role: 'owner' | 'maintainer' | 'contributor') => void;
+  memberRole: Database['public']['Enums']['workspace_role'];
+  setMemberRole: (role: Database['public']['Enums']['workspace_role']) => void;
   memberError: string | null;
   setMemberError: (error: string | null) => void;
   memberSuccess: string | null;
@@ -111,7 +112,7 @@ export interface UseWorkspaceDetailsPageReturn {
   ownerCount: number;
   isLastOwner: boolean;
   handleInviteMember: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
-  handleMemberRoleChange: (memberUserId: string | null, nextRole: 'owner' | 'maintainer' | 'contributor') => Promise<void>;
+  handleMemberRoleChange: (memberUserId: string | null, nextRole: Database['public']['Enums']['workspace_role']) => Promise<void>;
   handleRemoveMember: (memberUserId: string | null) => Promise<void>;
   handleRevokeInvite: (inviteId: string) => Promise<void>;
   handleResendInvite: (inviteId: string) => Promise<void>;
@@ -171,7 +172,7 @@ export interface MembersTabProps {
   members: WorkspaceMember[] | undefined;
   invites: WorkspaceInvite[] | undefined;
   handleInviteMember: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
-  handleMemberRoleChange: (memberUserId: string | null, nextRole: 'owner' | 'maintainer' | 'contributor') => Promise<void>;
+  handleMemberRoleChange: (memberUserId: string | null, nextRole: Database['public']['Enums']['workspace_role']) => Promise<void>;
   handleRemoveMember: (memberUserId: string | null) => Promise<void>;
   handleRevokeInvite: (inviteId: string) => Promise<void>;
   handleResendInvite: (inviteId: string) => Promise<void>;
@@ -180,8 +181,8 @@ export interface MembersTabProps {
   resendInvite: { isPending: boolean };
   memberEmail: string;
   setMemberEmail: (email: string) => void;
-  memberRole: 'owner' | 'maintainer' | 'contributor';
-  setMemberRole: (role: 'owner' | 'maintainer' | 'contributor') => void;
+  memberRole: Database['public']['Enums']['workspace_role'];
+  setMemberRole: (role: Database['public']['Enums']['workspace_role']) => void;
   inviteToken: string | null;
   memberSuccess: string | null;
   setMemberSuccess: (success: string | null) => void;
@@ -198,7 +199,7 @@ export const useWorkspaceDetailsPage = (workspaceId: string): UseWorkspaceDetail
   const { user, isLoading: isAuthLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('products');
   const [memberEmail, setMemberEmail] = useState('');
-  const [memberRole, setMemberRole] = useState<'owner' | 'maintainer' | 'contributor'>('contributor');
+  const [memberRole, setMemberRole] = useState<Database['public']['Enums']['workspace_role']>('contributor');
   const [memberError, setMemberError] = useState<string | null>(null);
   const [memberSuccess, setMemberSuccess] = useState<string | null>(null);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
@@ -307,7 +308,7 @@ export const useWorkspaceDetailsPage = (workspaceId: string): UseWorkspaceDetail
     }
   }, [memberEmail, memberRole, createInvite]);
 
-  const handleMemberRoleChange = useCallback(async (memberUserId: string | null, nextRole: 'owner' | 'maintainer' | 'contributor') => {
+  const handleMemberRoleChange = useCallback(async (memberUserId: string | null, nextRole: Database['public']['Enums']['workspace_role']) => {
     if (!memberUserId) return;
 
     const targetMember = members?.find((member) => member.user_id === memberUserId);

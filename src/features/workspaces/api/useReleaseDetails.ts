@@ -5,9 +5,11 @@ import { releaseKeys } from '../../../shared/api/queryKeys';
 import { mapReleaseChangeRowToModel } from './releaseChangeMapper';
 import type { Json } from '../../../shared/api/database.types';
 
+import type { Database } from '../../../shared/api/database.types';
+
 interface ReleaseChangePayload {
   releaseId: string;
-  category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking';
+  category: Database['public']['Enums']['change_category'];
   title: string;
   description: string;
   position: number;
@@ -354,7 +356,7 @@ export const useUpdateReleaseChange = (releaseId: string) => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ changeId, category, title, description, expectedUpdatedAt }: { changeId: string; category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string; expectedUpdatedAt?: string | null }) => {
+    mutationFn: async ({ changeId, category, title, description, expectedUpdatedAt }: { changeId: string; category: Database['public']['Enums']['change_category']; title: string; description: string; expectedUpdatedAt?: string | null }) => {
       const { data, error } = await supabase.rpc('update_release_change', {
         p_change_id: changeId,
         p_category: category,

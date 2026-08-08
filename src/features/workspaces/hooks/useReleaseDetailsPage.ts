@@ -31,6 +31,7 @@ import { releaseKeys, workspaceKeys, productKeys } from '../../../shared/api/que
 import { useReleaseRealtime } from '../../../shared/api/useSupabaseRealtime';
 import { realtimeDedup } from '../../../shared/api/realtimeDedup';
 import { useToast } from '../../../app/hooks/useToast';
+import type { Database } from '../../../shared/api/database.types';
 
 const createReleaseChangeSchema = z.object({
   category: z.enum(['feature', 'improvement', 'bugfix', 'security', 'breaking']),
@@ -151,11 +152,11 @@ export interface ChangesListProps {
   canReorderChanges: boolean;
   editingChangeId: string | null;
   editingChangeForm: {
-    category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking';
+    category: Database['public']['Enums']['change_category'];
     title: string;
     description: string;
   };
-  setEditingChangeForm: (form: { category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string } | ((current: { category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string }) => { category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string })) => void;
+  setEditingChangeForm: (form: { category: Database['public']['Enums']['change_category']; title: string; description: string } | ((current: { category: Database['public']['Enums']['change_category']; title: string; description: string }) => { category: Database['public']['Enums']['change_category']; title: string; description: string })) => void;
   user: { id?: string } | null | undefined;
   releaseStatus: ReleaseStatus;
   handleDrop: (targetId: string) => void;
@@ -223,7 +224,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
   const [isActivityCollapsed, setIsActivityCollapsed] = useState(false);
   const [pendingReviewerIds, setPendingReviewerIds] = useState<string[]>([]);
   const [editingChangeId, setEditingChangeId] = useState<string | null>(null);
-  const [editingChangeForm, setEditingChangeForm] = useState<{ category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string }>({ category: 'feature', title: '', description: '' });
+  const [editingChangeForm, setEditingChangeForm] = useState<{ category: Database['public']['Enums']['change_category']; title: string; description: string }>({ category: 'feature', title: '', description: '' });
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [optimisticReleaseStatus, setOptimisticReleaseStatus] = useState<'draft' | 'review' | 'approved' | 'rejected' | 'published' | null>(null);
@@ -674,7 +675,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
 
   const startEditChange = (change: { id: string; category: string; title: string; description: string; updated_at?: string | null }) => {
     setEditingChangeId(change.id);
-    setEditingChangeForm({ category: change.category as 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking', title: change.title, description: change.description });
+    setEditingChangeForm({ category: change.category as Database['public']['Enums']['change_category'], title: change.title, description: change.description });
   };
 
   const saveEditChange = async () => {

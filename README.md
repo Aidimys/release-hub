@@ -29,6 +29,7 @@ ReleaseHub — это веб-приложение для управления р
 - `release_changes` — изменения по релизу;
 - `comments` — комментарии к релизу;
 - `release_reviewers` — назначенные согласующие и их решения;
+- `workspace_invites` — приглашения в workspace с токенами и сроком действия;
 - `activity_events` — журнал действий;
 - `profiles` — профили пользователей, связанные с Auth.
 
@@ -46,17 +47,23 @@ ReleaseHub — это веб-приложение для управления р
 
 ### 2. Supabase как система авторизации и безопасности
 
-Доступ к данным регулируется не только UI-условиями, но и RLS-политиками в Postgres. Для сложных сценариев используются `SECURITY DEFINER` RPC-функции, которые проверяют права после `auth.uid()` и обеспечивают atomic update/insert/delete операции.
+Доступ к данным регулируется RLS-политиками в Postgres. Для критических операций используются `SECURITY DEFINER` RPC-функции, которые проверяют права после `auth.uid()` и обеспечивают atomic update/insert/delete операции.
 
-### 3. Workflow релиза как бизнес-логика
+**Важно:** изменение статуса релиза и публикация выполняются через RPC (`submit_release_for_review`, `cast_release_vote`, `publish_release`, `return_rejected_release_to_draft`, `cancel_published_release`). При этом UI использует optimistic update для локального кеша, а финальная валидация происходит на стороне БД. Прямое обновление полей `status` и `published_at` через `supabase.from('releases').update(...)` из клиента заблокировано RLS-политикой `"Owners and maintainers can update non-status release fields"`.
 
-Переходы статусов реализованы в отдельном модуле `releaseWorkflow.ts` и дополнительно проверяются в UI. Это позволяет избежать неоднозначного сценария `draft -> review -> approved -> published` и не допустить некорректные переходы из интерфейса.
+### 3. Модель приглашений
 
-### 4. Realtime синхронизация
+Вместо простого добавления записи в `workspace_members` используется отдельная таблица `workspace_invites` с токеном, сроком действия (7 дней) и статусом (`pending`, `accepted`, `expired`, `revoked`). Приглашение создаётся через RPC `create_invite`, принимается через `accept_invite` (с проверкой email владельца токена), может быть отозвано (`revoke_invite`) или повторно отправлено (`resend_invite`). Это отклоняется от упрощённой модели, где приглашение сразу создаёт `workspace_members`.
+
+### 4. Workflow релиза как бизнес-логика
+
+Переходы статусов реализованы в отдельном модуле `releaseWorkflow.ts` и дополнительно проверяются в UI. Допустимые переходы: `draft → review → approved → published`, а также `review → rejected → draft`. Это позволяет избежать неоднозначных сценариев и не допустить некорректные переходы из интерфейса.
+
+### 5. Realtime синхронизация
 
 Подписки формируются через `supabase.channel(...)` в `useSupabaseRealtime.ts` и обновляют cache по ключам React Query, что позволяет синхронизировать список релизов, ревьюеров, комментарии и activity без перезагрузки страницы.
 
-### 5. Типизация данных
+### 6. Типизация данных
 
 Типы базы генерируются из Supabase командой `supabase gen types` и сохраняются в `src/shared/api/database.types.ts`. Благодаря этому TypeScript знает структуру таблиц и RPC-аргументов, а интерфейс и SQL остаются согласованными.
 
@@ -73,6 +80,7 @@ erDiagram
   workspaces ||--o{ workspace_members : contains
   workspaces ||--o{ products : contains
   workspaces ||--o{ activity_events : logs
+  workspaces ||--o{ workspace_invites : contains
 
   products ||--o{ releases : contains
   releases ||--o{ release_changes : has
@@ -80,6 +88,7 @@ erDiagram
   releases ||--o{ release_reviewers : has
   releases ||--o{ activity_events : logs
 
+  workspace_invites }o--|| workspaces : belongs_to
   workspace_members }o--|| workspaces : belongs_to
   workspace_members }o--|| profiles : member
 
@@ -94,7 +103,7 @@ erDiagram
 
 ### Требования
 
-- Node.js 20+
+- Node.js 24+
 - npm
 - Supabase CLI
 - доступ к интернету для подключения к Supabase
@@ -112,6 +121,7 @@ npm install
 ```env
 VITE_SUPABASE_URL=https://<project-ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=<supabase-anon-key>
+VITE_SUPABASE_SERVICE_ROLE_KEY=<supabase-service-role-key>
 ```
 
 ### 3. Запуск Supabase локально
@@ -149,7 +159,7 @@ npm run test
 ## Инструкция настройки Supabase
 
 1. Создайте проект в Supabase.
-2. Скопируйте `Project URL` и `anon/public key` в `.env.local`.
+2. Скопируйте `Project URL`, `anon/public key` и `service_role key` в `.env.local`.
 3. Убедитесь, что в Supabase включены:
    - Authentication;
    - Postgres Database;
@@ -173,8 +183,7 @@ npm run test
 | ------------------------ | -------------------------------------- | ----------- |
 | `VITE_SUPABASE_URL`      | URL проекта Supabase                   | Да          |
 | `VITE_SUPABASE_ANON_KEY` | Анонимный ключ для клиентских запросов | Да          |
-
-Для локального запуска можно использовать значения из `.env.local` данного проекта, но в репозитории лучше хранить только безопасные и актуальные значения для конкретной среды.
+| `VITE_SUPABASE_SERVICE_ROLE_KEY` | Сервисный ключ для e2e-тестов и админ-операций | Нет (рекомендуется для тестов) |
 
 ## Описание ролей и разрешений
 
@@ -205,14 +214,15 @@ RLS настроен непосредственно в SQL-миграции. О�
 - `releases` видны членам workspace, а публично доступна только опубликованная версия;
 - `release_changes` и `comments` открыты авторизованным участникам workspace;
 - публикация и изменения для опубликованных релизов ограничены дополнительными проверками;
-- операции с участниками и ролями защищены проверкой на роль owner/maintainer и на наличие workspace membership.
+- операции с участниками и ролями защищены проверкой на роль owner/maintainer и на наличие workspace membership;
+- **прямое обновление полей `status` и `published_at` у `releases` из клиента запрещено** — изменения статуса возможны только через SECURITY DEFINER RPC-функции.
 
 Примеры политик:
 
-- `Users can view workspaces they are members of`
+- `Members can view their workspaces`
 - `Members can view products in same workspace`
-- `Owners and maintainers can update releases`
-- `Contributors can delete own unpublished release changes`
+- `Owners and maintainers can update non-status release fields`
+- `Owners can delete releases`
 - `Public can view published releases`
 - `Public can view release changes for published releases`
 
@@ -224,9 +234,41 @@ RLS настроен непосредственно в SQL-миграции. О�
 
 Создаёт workspace, добавляет создателя как `owner`, создаёт продукт по умолчанию и записывает событие в `activity_events`. Все действия происходят в одном вызове, что минимизирует риск неполной инициализации.
 
-### `invite_member(workspace_id, email, role)`
+### `create_invite(workspace_id, email, role)`
 
-Проверяет роль вызывающего пользователя, ищет профиль по email, запрещает назначать `owner` напрямую и создаёт `workspace_members` с записью `invited_email` и статусом. Здесь объединены lookup + validation + insert.
+Проверяет роль вызывающего пользователя, ищет профиль по email, запрещает назначать `owner` напрямую и создаёт запись в `workspace_invites` с хешированным токеном и статусом `pending`. Здесь объединены lookup + validation + insert.
+
+### `accept_invite(token)`
+
+Проверяет токен приглашения, срок действия, соответствие email текущему пользователю и создаёт `workspace_members` со статусом `active`.
+
+### `revoke_invite(invite_id)`
+
+Проверяет, что вызвавший пользователь — owner, и переводит приглашение в статус `revoked`.
+
+### `resend_invite(invite_id)`
+
+Генерирует новый токен для существующего pending-приглашения и продлевает срок действия на 7 дней.
+
+### `submit_release_for_review(release_id, reviewer_ids, expected_updated_at)`
+
+Проверяет права, валидирует релиз (название, версия, изменения, согласующие) и переводит статус в `review`. Использует optimistic locking через `expected_updated_at`.
+
+### `cast_release_vote(release_id, decision, expected_updated_at)`
+
+Записывает решение согласующего. Если все согласующие проголосовали `approved`, релиз автоматически переводится в `approved`.
+
+### `publish_release(release_id, expected_updated_at)`
+
+Проверяет, что релиз в статусе `approved`, и переводит в `published`, устанавливая `published_at`.
+
+### `return_rejected_release_to_draft(release_id, expected_updated_at)`
+
+Возвращает отклонённый релиз в `draft`.
+
+### `cancel_published_release(release_id, expected_updated_at)`
+
+Проверяет аутентификацию, принадлежность пользователя к workspace и роль `owner`. После проверки переводит релиз из `published` в `draft`, обнуляет `published_at` и возвращает `true/false` как безопасный индикатор успеха. После вызова RPC происходит прямое обновление `release_reviewers` для сброса решений согласующих.
 
 ### `change_member_role(workspace_id, target_user_id, new_role)`
 
@@ -236,13 +278,13 @@ RLS настроен непосредственно в SQL-миграции. О�
 
 Проверяет, что вызвавший пользователь имеет право, запрещает удаление единственного owner и удаляет запись из `workspace_members`.
 
-### `cancel_published_release(release_id)`
-
-Проверяет аутентификацию, принадлежность пользователя к workspace и роль `owner`. После проверки переводит релиз из `published` в `draft`, обнуляет `published_at` и возвращает `true/false` как безопасный индикатор успеха.
-
 ### `delete_workspace_by_id(workspace_id)`
 
 Удаляет workspace только при условии, что авторизованный пользователь является owner. Это делает удаление допустимым только по строгому бизнес-условию, а не через прямой `DELETE` из UI.
+
+## Восстановление пароля
+
+Приложение использует встроенную функцию Supabase Auth `resetPasswordForEmail`. Пользователь вводит email на странице восстановления, и Supabase отправляет письмо со ссылкой для сброса пароля. Кастомный бэкенд для этого не реализован.
 
 ## Команды проверки качества
 
@@ -262,20 +304,30 @@ npm run build
 - Playwright для e2e сценариев в workflow релизов;
 - Vite build как финальная сборка продукта.
 
+> **Примечание:** CI workflow в репозитории отсутствует. Команды выше предназначены для локального запуска.
+
 ## Деплой
 
 Ссылка на деплой: https://release-hub-lime.vercel.app/
 
+> **Примечание:** работоспособность деплоя не проверялась в рамках аудита.
+
 ## Тестовые учётные записи
 
-Для проверки бизнес-процесса предусмотрены тестовые аккаунты, используемые в e2e сценариях:
+Для проверки бизнес-процесса в e2e-сценариях используются тестовые аккаунты:
 
 | Email                    | Пароль   | Роль       |
 | ------------------------ | -------- | ---------- |
 | `owner@example.com`      | `test12` | owner      |
 | `maintainer@example.com` | `test12` | maintainer |
 
+> **Примечание:** данные аккаунты являются заглушками. Перед запуском e2e-тестов необходимо предварительно создать соответствующих пользователей в Supabase Auth и назначить их в workspace. Автоматической подготовки тестовых аккаунтов нет.
+
 Сценарии проверяют создание workspace, создание релиза, назначение согласующих, отправку на review, утверждение/публикацию и просмотр публичных release notes.
+
+## Conflict resolution
+
+В текущей реализации conflict resolution не реализован. При одновременном редактировании используется optimistic locking на уровне RPC (`expected_updated_at`): если запись была изменена между чтением и записью, сервер отклоняет операцию и клиент откатывает optimistic update.
 
 ## Известные ограничения
 
@@ -283,7 +335,8 @@ npm run build
 - публикация релиза и публичный просмотр доступны только при наличии опубликованных release notes и корректного `product.slug`;
 - часть прав находится в UI (`usePermissions`) и дополнительно дублируется в RLS/SQL-checks, поэтому важно не полагаться только на фронтенд-проверки;
 - процесс согласования жёстко ограничен состоянием `review`, поэтому прямые переходы между статусами запрещены;
-- при отсутствии профиля в `profiles` некоторые сценарии с приглашением участников и отображением имени могут работать не так ожидаемо.
+- при отсутствии профиля в `profiles` некоторые сценарии с приглашением участников и отображением имени могут работать не так ожидаемо;
+- для приглашений требуется ручная передача токена (в реальном продукте нужно добавить email-рассылку).
 
 ## Решения, принятые при неоднозначных требованиях
 
@@ -302,6 +355,9 @@ npm run build
 5. Workflow статусов зафиксирован в коде процесса.
    Сценарий статусов описан явно и не оставлен на усмотрение UI. Это помогает избежать конфликта между "логикой машины" и "логикой пользователя".
 
+6. Отказ от простой модели приглашений в пользу токенов.
+   Вместо прямого создания `workspace_members` через `invite_member` реализована двухэтапная модель: `workspace_invites` + `accept_invite`. Это позволяет контролировать срок действия, повторную отправку и отзыв приглашений без измененияmembership.
+
 ## Структура ключевых каталогов
 
 ```text
@@ -313,4 +369,7 @@ src/
 supabase/
   migrations/          — SQL-схема и политики
   config.toml          — конфигурация Supabase CLI
+tests/
+  e2e/                 — Playwright сценарии
+  unit/                — модульные тесты
 ```

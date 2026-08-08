@@ -1,4 +1,5 @@
 import type { ChangesListProps } from '../../../features/workspaces/hooks/useReleaseDetailsPage';
+import type { Database } from '../../../shared/api/database.types';
 
 export const ChangesList = ({ orderedChanges, isChangesLoading, isChangesError, changesError, draggedId, dropTargetId, setDraggedId, setDropTargetId, canReorderChanges, editingChangeId, editingChangeForm, setEditingChangeForm, user, releaseStatus, handleDrop, startEditChange, saveEditChange, handleDeleteChange }: ChangesListProps) => {
   if (isChangesLoading) {
@@ -74,7 +75,7 @@ export const ChangesList = ({ orderedChanges, isChangesLoading, isChangesError, 
                     <label className="block text-sm font-medium text-gray-700 mb-1">Категория</label>
                     <select
                       value={editingChangeForm.category}
-                      onChange={(event) => setEditingChangeForm((current: { category: string; title: string; description: string }) => ({ ...current, category: event.target.value as 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking' }))}
+                      onChange={(event) => setEditingChangeForm((current: { category: Database['public']['Enums']['change_category']; title: string; description: string }) => ({ ...current, category: event.target.value as Database['public']['Enums']['change_category'] }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                     >
                       <option value="feature">Feature</option>
