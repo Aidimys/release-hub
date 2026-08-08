@@ -300,11 +300,11 @@ npm run build
 
 - ESLint для качества TS/React-кода;
 - TypeScript для типовой проверки;
-- Vitest для модульных/unit-тестов;
+- Vitest для модульных/unit-тестов и component-тестов;
 - Playwright для e2e сценариев в workflow релизов;
 - Vite build как финальная сборка продукта.
 
-> **Примечание:** CI workflow в репозитории отсутствует. Команды выше предназначены для локального запуска.
+CI workflow выполняется в `.github/workflows/ci.yml` и включает typecheck, lint, test и build.
 
 ## Деплой
 
@@ -369,7 +369,10 @@ src/
 supabase/
   migrations/          — SQL-схема и политики
   config.toml          — конфигурация Supabase CLI
+  tests/               — SQL-тесты RLS и RPC
 tests/
   e2e/                 — Playwright сценарии
-  unit/                — модульные тесты
+  unit/                — модульные и component-тесты
+.github/
+  workflows/           — CI workflow (typecheck, lint, test, build)
 ```
