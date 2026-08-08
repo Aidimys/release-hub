@@ -36,7 +36,7 @@ describe('release workflow', () => {
     expect(canTransitionToStatus('review', 'rejected')).toBe(true);
     expect(canTransitionToStatus('rejected', 'draft')).toBe(true);
     expect(canTransitionToStatus('approved', 'published')).toBe(true);
-    expect(canTransitionToStatus('published', 'draft')).toBe(true);
+    expect(canTransitionToStatus('published', 'draft')).toBe(false);
     expect(canTransitionToStatus('draft', 'approved')).toBe(false);
   });
 });

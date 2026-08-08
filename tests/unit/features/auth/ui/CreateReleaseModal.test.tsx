@@ -8,7 +8,7 @@ vi.mock('@/features/workspaces/api/useCreateRelease', () => ({
   useCreateRelease: vi.fn(),
 }));
 
-const mockedUseCreateRelease = useCreateRelease as unknown as vi.Mock;
+const mockedUseCreateRelease = useCreateRelease as unknown as ReturnType<typeof vi.fn>;
 
 describe('CreateReleaseModal', () => {
   it('validates required fields and submits form', async () => {

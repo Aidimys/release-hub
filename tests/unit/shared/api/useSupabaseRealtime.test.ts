@@ -86,7 +86,7 @@ const setup = () => {
 };
 
 const scopedKeys = (spy: ReturnType<typeof vi.spyOn>) =>
-  spy.mock.calls.map((call) => call?.[0]?.queryKey ?? null);
+  spy.mock.calls.map((call: [options?: { queryKey?: readonly unknown[] }]) => call[0]?.queryKey ?? null);
 
 describe('realtimeDedup', () => {
   beforeEach(() => {

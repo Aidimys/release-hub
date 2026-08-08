@@ -12,8 +12,9 @@ describe('mapReleaseChangeRowToModel', () => {
       position: 1,
       created_by: 'user1',
       created_at: '2026-08-02T00:00:00Z',
+      updated_at: '2026-08-02T00:00:00Z',
       profiles: { display_name: 'Author Name' },
-    };
+    } as const;
 
     const model = mapReleaseChangeRowToModel(row);
 
@@ -32,8 +33,9 @@ describe('mapReleaseChangeRowToModel', () => {
       position: 0,
       created_by: null,
       created_at: '2026-08-02T00:00:00Z',
+      updated_at: '2026-08-02T00:00:00Z',
       profiles: null,
-    };
+    } as const;
 
     const model = mapReleaseChangeRowToModel(row);
 

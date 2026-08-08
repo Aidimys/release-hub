@@ -10,7 +10,7 @@ export const allowedReleaseTransitions: Record<ReleaseStatus, ReleaseStatus[]> =
   review: ['approved', 'rejected'],
   approved: ['published'],
   rejected: ['draft'],
-  published: ['draft', 'published'],
+  published: [],
 };
 
 export const validateReleaseForReview = ({

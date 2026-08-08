@@ -6,7 +6,7 @@ const writeAcknowledgedAt = (timestamp: number) => {
   try {
     localStorage.setItem(OFFLINE_STORAGE_KEY, String(timestamp));
   } catch {
-    // ignore storage errors
+    // Continue without persisting the timestamp
   }
 };
 
