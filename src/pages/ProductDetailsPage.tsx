@@ -9,12 +9,13 @@ import { useProductReleasesRealtime } from '../shared/api/useSupabaseRealtime';
 import { EditProductModal } from '../features/workspaces/ui/EditProductModal';
 import { DeleteConfirmModal } from '../features/workspaces/ui/DeleteConfirmModal';
 import { useToast } from '../app/hooks/useToast';
+import type { ReleaseStatus } from '../features/workspaces/utils/releaseWorkflow';
 
 interface ProductRelease {
   id: string;
   version: string;
   title: string;
-  status: string;
+  status: ReleaseStatus;
   planned_at?: string | null;
   published_at?: string | null;
   created_at?: string | null;

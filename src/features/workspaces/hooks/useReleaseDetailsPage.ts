@@ -6,10 +6,14 @@ import { z } from 'zod';
 import { useAuth } from '../../../app/providers/AuthProvider';
 import { usePermissions } from '../../../features/workspaces/api/usePermissions';
 import { useCancelPublishedRelease, useDeleteRelease, useWorkspaceMembers } from '../../../features/workspaces/api/useWorkspaceDetails';
+import type { ReleaseStatus } from '../../../features/workspaces/utils/releaseWorkflow';
 import { canTransitionToStatus, validateReleaseForReview } from '../../../features/workspaces/utils/releaseWorkflow';
 import {
+  useCreateActivityEvent,
   useCreateReleaseChange,
   useCreateReleaseComment,
+  useDeleteReleaseChange,
+  useDeleteReleaseComment,
   useReleaseActivity,
   useReleaseChanges,
   useReleaseComments,
@@ -23,7 +27,7 @@ import {
   useUpdateReleaseChange,
   useUpdateReleaseComment,
 } from '../../../features/workspaces/api/useReleaseDetails';
-import { supabase } from '../../../shared/api/supabase';
+import { releaseKeys, workspaceKeys, productKeys } from '../../../shared/api/queryKeys';
 import { useReleaseRealtime } from '../../../shared/api/useSupabaseRealtime';
 import { realtimeDedup } from '../../../shared/api/realtimeDedup';
 import { useToast } from '../../../app/hooks/useToast';
@@ -38,14 +42,14 @@ type FormData = z.infer<typeof createReleaseChangeSchema>;
 
 interface ReleaseListItem {
   id?: string;
-  status?: string | null;
+  status?: ReleaseStatus | null;
   published_at?: string | null;
   [key: string]: unknown;
 }
 
 interface ReleaseRecord {
   id?: string;
-  status?: string | null;
+  status?: ReleaseStatus | null;
   published_at?: string | null;
   products?: {
     id?: string;
@@ -69,7 +73,7 @@ const getErrorMessage = (error: unknown): string => {
 
 export interface ReleaseHeaderProps {
   release: ReleaseRecord;
-  releaseStatus: string;
+  releaseStatus: ReleaseStatus;
   permissions: {
     canDeleteRelease: boolean;
     canCancelPublishedRelease: boolean;
@@ -114,8 +118,8 @@ export interface ReleaseActionsSectionProps {
     canSendForReview: boolean;
     canPublishRelease: boolean;
   };
-  releaseStatus: string;
-  handleStatusChange: (status: 'draft' | 'review' | 'approved' | 'rejected' | 'published') => void;
+  releaseStatus: ReleaseStatus;
+  handleStatusChange: (status: ReleaseStatus) => void;
 }
 
 export interface AddChangeFormProps {
@@ -153,7 +157,7 @@ export interface ChangesListProps {
   };
   setEditingChangeForm: (form: { category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string } | ((current: { category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string }) => { category: 'feature' | 'improvement' | 'bugfix' | 'security' | 'breaking'; title: string; description: string })) => void;
   user: { id?: string } | null | undefined;
-  releaseStatus: string;
+  releaseStatus: ReleaseStatus;
   handleDrop: (targetId: string) => void;
   startEditChange: (change: { id: string; category: string; title: string; description: string; updated_at?: string | null }) => void;
   saveEditChange: () => void;
@@ -236,6 +240,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
   const { data: activity, isLoading: isActivityLoading } = useReleaseActivity(resolvedReleaseId);
   const createReleaseChange = useCreateReleaseChange(resolvedReleaseId);
   const createReleaseComment = useCreateReleaseComment(resolvedReleaseId);
+  const deleteReleaseChange = useDeleteReleaseChange(resolvedReleaseId);
   const reorderReleaseChanges = useReorderReleaseChanges(resolvedReleaseId);
   const submitForReview = useSubmitReleaseForReview();
   const castVote = useCastReleaseVote();
@@ -248,9 +253,11 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
   const permissions = usePermissions(workspaceMembers);
   const deleteRelease = useDeleteRelease(resolvedWorkspaceId);
   const cancelPublishedRelease = useCancelPublishedRelease(resolvedWorkspaceId);
+  const createActivityEvent = useCreateActivityEvent(resolvedWorkspaceId, resolvedReleaseId);
+  const deleteReleaseComment = useDeleteReleaseComment(resolvedReleaseId);
 
   const releaseStatus = optimisticReleaseStatus ?? release?.status ?? 'draft';
-  const isReleaseDeleted = Boolean(queryClient.getQueryData(['release_deleted', resolvedReleaseId]));
+  const isReleaseDeleted = Boolean(queryClient.getQueryData(releaseKeys.deleted(resolvedReleaseId)));
   const isVotingClosed = releaseStatus !== 'review';
   const canReorderChanges = releaseStatus === 'draft' && permissions.canEditChange;
   const isPublished = releaseStatus === 'published';
@@ -259,7 +266,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
     ? `/workspaces/${resolvedWorkspaceId}/products/${release.products.id}`
     : `/workspaces/${resolvedWorkspaceId}`;
 
-  const updateReleaseListCache = (queryKey: readonly unknown[], nextStatus: string, nextPublishedAt: string | null) => {
+  const updateReleaseListCache = (queryKey: readonly unknown[], nextStatus: ReleaseStatus, nextPublishedAt: string | null) => {
     queryClient.setQueryData(queryKey, (current: ReleaseListItem[] | undefined) => {
       if (!current) return current;
       return current.map((item) => {
@@ -270,19 +277,19 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
   };
 
   const resetReviewersState = async () => {
-    queryClient.setQueryData(['release_reviewers', resolvedReleaseId], (current: Array<{ decision?: string | null; decided_at?: string | null }> | undefined) => {
+    queryClient.setQueryData(releaseKeys.reviewers(resolvedReleaseId), (current: Array<{ decision?: string | null; decided_at?: string | null }> | undefined) => {
       if (!current) return current;
       return current.map((reviewer) => ({ ...reviewer, decision: null, decided_at: null }));
     });
-    await queryClient.invalidateQueries({ queryKey: ['release_reviewers', resolvedReleaseId] });
-    await queryClient.refetchQueries({ queryKey: ['release_reviewers', resolvedReleaseId] });
+    await queryClient.invalidateQueries({ queryKey: releaseKeys.reviewers(resolvedReleaseId) });
+    await queryClient.refetchQueries({ queryKey: releaseKeys.reviewers(resolvedReleaseId) });
   };
 
   useReleaseRealtime(resolvedReleaseId, resolvedWorkspaceId);
 
   useEffect(() => {
     if (release?.id) {
-      queryClient.setQueryData(['release_deleted', resolvedReleaseId], false);
+      queryClient.setQueryData(releaseKeys.deleted(resolvedReleaseId), false);
     }
   }, [queryClient, release?.id, resolvedReleaseId]);
 
@@ -302,14 +309,14 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
   });
 
   const handleStatusChange = async (
-    nextStatus: 'draft' | 'review' | 'approved' | 'rejected' | 'published',
+    nextStatus: ReleaseStatus,
     options?: { skipPermissionCheck?: boolean }
   ) => {
     setErrorText(null);
 
     if (!options?.skipPermissionCheck) {
-      await queryClient.refetchQueries({ queryKey: ['workspace_members', resolvedWorkspaceId] });
-      const freshMembers = queryClient.getQueryData<Array<{ user_id: string | null; role: string }>>(['workspace_members', resolvedWorkspaceId]);
+      await queryClient.refetchQueries({ queryKey: workspaceKeys.members(resolvedWorkspaceId) });
+      const freshMembers = queryClient.getQueryData<Array<{ user_id: string | null; role: string }>>(workspaceKeys.members(resolvedWorkspaceId));
       const myRole = freshMembers?.find((m) => m.user_id === user?.id)?.role ?? 'contributor';
       if (myRole !== 'owner' && myRole !== 'maintainer') {
         setErrorText('У вас нет прав изменять статус релиза');
@@ -317,7 +324,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
       }
     }
 
-    if (!canTransitionToStatus(releaseStatus as 'draft' | 'review' | 'approved' | 'rejected' | 'published', nextStatus)) {
+    if (!canTransitionToStatus(releaseStatus, nextStatus)) {
       setErrorText('Статус можно менять только по цепочке draft → review → approved → published');
       return;
     }
@@ -350,7 +357,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
     const updatedAt = release?.updated_at ?? null;
 
     const rollbackOptimistic = () => {
-      queryClient.setQueryData(['release', resolvedReleaseId], (current: ReleaseRecord | undefined) => {
+      queryClient.setQueryData(releaseKeys.detail(resolvedReleaseId), (current: ReleaseRecord | undefined) => {
         if (!current) return current;
         return {
           ...current,
@@ -359,15 +366,15 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
         };
       });
       if (resolvedWorkspaceId) {
-        updateReleaseListCache(['workspace_releases', resolvedWorkspaceId], previousStatus, previousPublishedAt);
+        updateReleaseListCache(workspaceKeys.releases(resolvedWorkspaceId), previousStatus, previousPublishedAt);
       }
       if (productId) {
-        updateReleaseListCache(['product_releases', productId], previousStatus, previousPublishedAt);
+        updateReleaseListCache(productKeys.releases(productId), previousStatus, previousPublishedAt);
       }
       setOptimisticReleaseStatus(null);
     };
 
-    queryClient.setQueryData(['release', resolvedReleaseId], (current: ReleaseRecord | undefined) => {
+    queryClient.setQueryData(releaseKeys.detail(resolvedReleaseId), (current: ReleaseRecord | undefined) => {
       if (!current) return current;
       return {
         ...current,
@@ -379,10 +386,10 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
     realtimeDedup.markOwn('releases', resolvedReleaseId, nextStatus);
 
     if (resolvedWorkspaceId) {
-      updateReleaseListCache(['workspace_releases', resolvedWorkspaceId], nextStatus, publishedAt);
+      updateReleaseListCache(workspaceKeys.releases(resolvedWorkspaceId), nextStatus, publishedAt);
     }
     if (productId) {
-      updateReleaseListCache(['product_releases', productId], nextStatus, publishedAt);
+      updateReleaseListCache(productKeys.releases(productId), nextStatus, publishedAt);
     }
 
     try {
@@ -397,7 +404,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
         case 'approved': {
           const result = await castVote.mutateAsync({ releaseId: resolvedReleaseId, decision: 'approved', expectedUpdatedAt: updatedAt });
           if (result) {
-            setOptimisticReleaseStatus(result as 'draft' | 'review' | 'approved' | 'rejected' | 'published');
+            setOptimisticReleaseStatus(result as ReleaseStatus);
           }
           break;
         }
@@ -420,15 +427,15 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
       }
 
       setErrorText(null);
-      await queryClient.invalidateQueries({ queryKey: ['release', resolvedReleaseId] });
-      await queryClient.refetchQueries({ queryKey: ['release', resolvedReleaseId] });
+      await queryClient.invalidateQueries({ queryKey: releaseKeys.detail(resolvedReleaseId) });
+      await queryClient.refetchQueries({ queryKey: releaseKeys.detail(resolvedReleaseId) });
       if (resolvedWorkspaceId) {
-        await queryClient.invalidateQueries({ queryKey: ['workspace_releases', resolvedWorkspaceId] });
-        await queryClient.refetchQueries({ queryKey: ['workspace_releases', resolvedWorkspaceId] });
+        await queryClient.invalidateQueries({ queryKey: workspaceKeys.releases(resolvedWorkspaceId) });
+        await queryClient.refetchQueries({ queryKey: workspaceKeys.releases(resolvedWorkspaceId) });
       }
       if (productId) {
-        await queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
-        await queryClient.refetchQueries({ queryKey: ['product_releases', productId] });
+        await queryClient.invalidateQueries({ queryKey: productKeys.releases(productId) });
+        await queryClient.refetchQueries({ queryKey: productKeys.releases(productId) });
       }
       setOptimisticReleaseStatus(null);
     } catch (error: unknown) {
@@ -456,12 +463,10 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
       });
 
       if (user?.id) {
-        await supabase.from('activity_events').insert({
-          workspace_id: resolvedWorkspaceId,
-          release_id: resolvedReleaseId,
-          actor_id: user.id,
-          event_type: 'change_added',
+        await createActivityEvent.mutateAsync({
+          eventType: 'change_added',
           payload: { message: 'Добавлено изменение' },
+          actorId: user.id,
         });
       }
 
@@ -518,13 +523,13 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
         content: commentText.trim(),
         userId: user?.id ?? null,
       });
-      await supabase.from('activity_events').insert({
-        workspace_id: resolvedWorkspaceId,
-        release_id: resolvedReleaseId,
-        actor_id: user?.id ?? '',
-        event_type: 'comment_added',
-        payload: { message: 'Добавлен комментарий' },
-      });
+      if (user?.id) {
+        await createActivityEvent.mutateAsync({
+          eventType: 'comment_added',
+          payload: { message: 'Добавлен комментарий' },
+          actorId: user.id,
+        });
+      }
       setCommentText('');
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось отправить комментарий');
@@ -545,10 +550,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
     }
 
     try {
-      const { error } = await supabase.from('comments').delete().eq('id', commentId);
-      if (error) throw new Error(error.message);
-      await queryClient.invalidateQueries({ queryKey: ['release_comments', resolvedReleaseId] });
-      await queryClient.invalidateQueries({ queryKey: ['release_activity', resolvedReleaseId] });
+      await deleteReleaseComment.mutateAsync(commentId);
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось удалить комментарий');
     }
@@ -600,17 +602,17 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
       });
 
       if (newStatus) {
-        setOptimisticReleaseStatus(newStatus as 'draft' | 'review' | 'approved' | 'rejected' | 'published');
+        setOptimisticReleaseStatus(newStatus as ReleaseStatus);
       }
 
-      await queryClient.invalidateQueries({ queryKey: ['release', resolvedReleaseId] });
-      await queryClient.refetchQueries({ queryKey: ['release', resolvedReleaseId] });
+      await queryClient.invalidateQueries({ queryKey: releaseKeys.detail(resolvedReleaseId) });
+      await queryClient.refetchQueries({ queryKey: releaseKeys.detail(resolvedReleaseId) });
       setOptimisticReleaseStatus(null);
 
-      await queryClient.invalidateQueries({ queryKey: ['release_reviewers', resolvedReleaseId] });
-      await queryClient.refetchQueries({ queryKey: ['release_reviewers', resolvedReleaseId] });
-      await queryClient.invalidateQueries({ queryKey: ['release_activity', resolvedReleaseId] });
-      await queryClient.refetchQueries({ queryKey: ['release_activity', resolvedReleaseId] });
+      await queryClient.invalidateQueries({ queryKey: releaseKeys.reviewers(resolvedReleaseId) });
+      await queryClient.refetchQueries({ queryKey: releaseKeys.reviewers(resolvedReleaseId) });
+      await queryClient.invalidateQueries({ queryKey: releaseKeys.activity(resolvedReleaseId) });
+      await queryClient.refetchQueries({ queryKey: releaseKeys.activity(resolvedReleaseId) });
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось сохранить голос');
     }
@@ -664,13 +666,7 @@ export const useReleaseDetailsPage = (workspaceId: string, releaseId: string) =>
     }
 
     try {
-      const { error } = await supabase
-        .from('release_changes')
-        .delete()
-        .eq('id', changeId);
-
-      if (error) throw new Error(error.message);
-      await queryClient.invalidateQueries({ queryKey: ['release_changes', resolvedReleaseId] });
+      await deleteReleaseChange.mutateAsync(changeId);
     } catch (error: unknown) {
       setErrorText(getErrorMessage(error) || 'Не удалось удалить изменение');
     }

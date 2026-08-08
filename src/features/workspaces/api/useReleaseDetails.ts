@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../shared/api/supabase';
 import { realtimeDedup } from '../../../shared/api/realtimeDedup';
+import { releaseKeys } from '../../../shared/api/queryKeys';
+import { mapReleaseChangeRowToModel } from './releaseChangeMapper';
 import type { Json } from '../../../shared/api/database.types';
 
 interface ReleaseChangePayload {
@@ -23,23 +25,9 @@ interface ReleaseCommentPayload {
   userId?: string | null;
 }
 
-interface ReleaseChangeRow {
-  id: string;
-  category: string;
-  title: string;
-  description: string;
-  position: number;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-  profiles?: {
-    display_name?: string | null;
-  } | null;
-}
-
 export const useReleaseDetails = (releaseId: string) => {
   return useQuery({
-    queryKey: ['release', releaseId],
+    queryKey: releaseKeys.detail(releaseId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('releases')
@@ -72,12 +60,13 @@ export const useReleaseDetails = (releaseId: string) => {
 
 export const useReleaseChanges = (releaseId: string) => {
   return useQuery({
-    queryKey: ['release_changes', releaseId],
+    queryKey: releaseKeys.changes(releaseId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('release_changes')
         .select(`
           id,
+          release_id,
           category,
           title,
           description,
@@ -93,10 +82,7 @@ export const useReleaseChanges = (releaseId: string) => {
 
       if (error) throw error;
 
-      return (data ?? []).map((item: ReleaseChangeRow) => ({
-        ...item,
-        authorName: item.profiles?.display_name ?? null,
-      }));
+      return (data ?? []).map(mapReleaseChangeRowToModel);
     },
     enabled: !!releaseId,
     retry: false,
@@ -105,7 +91,7 @@ export const useReleaseChanges = (releaseId: string) => {
 
 export const useReleaseReviewers = (releaseId: string) => {
   return useQuery({
-    queryKey: ['release_reviewers', releaseId],
+    queryKey: releaseKeys.reviewers(releaseId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('release_reviewers')
@@ -129,7 +115,7 @@ export const useReleaseReviewers = (releaseId: string) => {
 
 export const useReleaseComments = (releaseId: string) => {
   return useQuery({
-    queryKey: ['release_comments', releaseId],
+    queryKey: releaseKeys.comments(releaseId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('comments')
@@ -154,7 +140,7 @@ export const useReleaseComments = (releaseId: string) => {
 
 export const useReleaseActivity = (releaseId: string) => {
   return useQuery({
-    queryKey: ['release_activity', releaseId],
+    queryKey: releaseKeys.activity(releaseId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_events')
@@ -206,7 +192,7 @@ export const useCreateReleaseChange = (releaseId: string) => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.changes(releaseId) });
     },
   });
 };
@@ -230,9 +216,9 @@ export const useCreateReleaseComment = (releaseId: string) => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release_comments', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_activity', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.comments(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
     },
   });
 };
@@ -252,12 +238,11 @@ export const useReorderReleaseChanges = (releaseId: string) => {
       return data;
     },
     onMutate: async ({ items }: { items: ReleaseChangeOrderItem[]; expectedUpdatedAt?: string | null }) => {
-      await queryClient.cancelQueries({ queryKey: ['release_changes', releaseId] });
+      await queryClient.cancelQueries({ queryKey: releaseKeys.changes(releaseId) });
 
-      const previousChanges = queryClient.getQueryData<Array<{ id: string; position: number; [key: string]: unknown }>>([
-        'release_changes',
-        releaseId,
-      ]);
+      const previousChanges = queryClient.getQueryData<Array<{ id: string; position: number; [key: string]: unknown }>>(
+        releaseKeys.changes(releaseId),
+      );
 
       const nextChanges = (previousChanges ?? []).map((change) => {
         const updatedItem = items.find((item) => item.id === change.id);
@@ -268,13 +253,13 @@ export const useReorderReleaseChanges = (releaseId: string) => {
         realtimeDedup.markOwn('release_changes', item.id, item.position);
       });
 
-      queryClient.setQueryData(['release_changes', releaseId], nextChanges);
+      queryClient.setQueryData(releaseKeys.changes(releaseId), nextChanges);
 
       return { previousChanges };
     },
     onError: (_error, _variables, context) => {
       if (context?.previousChanges) {
-        queryClient.setQueryData(['release_changes', releaseId], context.previousChanges);
+        queryClient.setQueryData(releaseKeys.changes(releaseId), context.previousChanges);
       }
     },
   });
@@ -295,10 +280,10 @@ export const useSubmitReleaseForReview = () => {
       return data;
     },
     onSuccess: (_data, { releaseId }) => {
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_activity', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.reviewers(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.changes(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) });
     },
   });
 };
@@ -318,9 +303,9 @@ export const useCastReleaseVote = () => {
       return data;
     },
     onSuccess: (_data, { releaseId }) => {
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_activity', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.reviewers(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) });
     },
   });
 };
@@ -339,8 +324,8 @@ export const usePublishRelease = () => {
       return data;
     },
     onSuccess: (_data, { releaseId }) => {
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.changes(releaseId) });
     },
   });
 };
@@ -359,8 +344,8 @@ export const useReturnRejectedReleaseToDraft = () => {
       return data;
     },
     onSuccess: (_data, { releaseId }) => {
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.reviewers(releaseId) });
     },
   });
 };
@@ -382,8 +367,73 @@ export const useUpdateReleaseChange = (releaseId: string) => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release_changes', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.changes(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
+    },
+  });
+};
+
+export const useCreateActivityEvent = (workspaceId: string, releaseId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ eventType, payload, actorId }: { eventType: string; payload: Json | undefined; actorId: string }) => {
+      const { data, error } = await supabase
+        .from('activity_events')
+        .insert({
+          workspace_id: workspaceId,
+          release_id: releaseId,
+          actor_id: actorId,
+          event_type: eventType,
+          payload,
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) });
+    },
+  });
+};
+
+export const useDeleteReleaseComment = (releaseId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (commentId: string) => {
+      const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId);
+
+      if (error) throw new Error(error.message);
+      return commentId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: releaseKeys.comments(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) });
+    },
+  });
+};
+
+export const useDeleteReleaseChange = (releaseId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (changeId: string) => {
+      const { error } = await supabase
+        .from('release_changes')
+        .delete()
+        .eq('id', changeId);
+
+      if (error) throw new Error(error.message);
+      return changeId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: releaseKeys.changes(releaseId) });
     },
   });
 };
@@ -403,9 +453,9 @@ export const useUpdateReleaseComment = (releaseId: string) => {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['release_comments', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release_activity', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.comments(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
     },
   });
 };

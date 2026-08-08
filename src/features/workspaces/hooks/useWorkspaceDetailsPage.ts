@@ -2,10 +2,10 @@ import { useCallback, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../../app/providers/AuthProvider';
-import { useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useWorkspaceActivity, useWorkspaceInvites, useCreateInvite, useRevokeInvite, useResendInvite, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, useUpdateProduct, type WorkspaceMember, type WorkspaceInvite } from '../../../features/workspaces/api/useWorkspaceDetails';
+import { useChangeMemberRole, useRemoveMember, useWorkspace, useProducts, useWorkspaceMembers, useWorkspaceReleases, useWorkspaceActivity, useWorkspaceInvites, useCreateInvite, useRevokeInvite, useResendInvite, useDeleteProduct, useDeleteRelease, useCancelPublishedRelease, useUpdateProduct, type WorkspaceMember, type WorkspaceInvite } from '../../../features/workspaces/api/useWorkspaceDetails';
 import { usePermissions } from '../../../features/workspaces/api/usePermissions';
 import { useWorkspaceRealtime } from '../../../shared/api/useSupabaseRealtime';
-import { supabase } from '../../../shared/api/supabase';
+import type { ReleaseStatus } from '../../../features/workspaces/utils/releaseWorkflow';
 import type { User } from '@supabase/supabase-js';
 
 type Tab = 'products' | 'releases' | 'members' | 'activity';
@@ -21,7 +21,7 @@ interface WorkspaceRelease {
   id: string;
   version: string;
   title: string;
-  status: string;
+  status: ReleaseStatus;
   updated_at?: string | null;
   planned_at?: string | null;
   created_at?: string | null;
@@ -221,6 +221,8 @@ export const useWorkspaceDetailsPage = (workspaceId: string): UseWorkspaceDetail
   const createInvite = useCreateInvite(workspaceId);
   const revokeInvite = useRevokeInvite(workspaceId);
   const resendInvite = useResendInvite(workspaceId);
+  const changeMemberRole = useChangeMemberRole(workspaceId);
+  const removeMember = useRemoveMember(workspaceId);
 
   const permissions = usePermissions(members);
   const queryClient = useQueryClient();
@@ -315,23 +317,12 @@ export const useWorkspaceDetailsPage = (workspaceId: string): UseWorkspaceDetail
     }
 
     try {
-      const { error } = await supabase.rpc('change_member_role', {
-        p_workspace_id: workspaceId,
-        p_target_user_id: memberUserId,
-        p_new_role: nextRole,
-      });
-
-      if (error) throw new Error(error.message);
-      queryClient.setQueryData<WorkspaceMember[]>(['workspace_members', workspaceId], (current) => {
-        if (!current) return current;
-        return current.map((m) => (m.user_id === memberUserId ? { ...m, role: nextRole } : m));
-      });
-      await queryClient.invalidateQueries({ queryKey: ['workspace_members', workspaceId] });
+      await changeMemberRole.mutateAsync({ memberUserId, nextRole });
       setMemberError(null);
     } catch (err) {
       setMemberError((err as Error)?.message || 'Не удалось обновить роль');
     }
-  }, [members, isLastOwner, workspaceId, queryClient]);
+  }, [members, isLastOwner, changeMemberRole]);
 
   const handleRemoveMember = useCallback(async (memberUserId: string | null) => {
     if (!memberUserId) return;
@@ -343,22 +334,12 @@ export const useWorkspaceDetailsPage = (workspaceId: string): UseWorkspaceDetail
     }
 
     try {
-      const { error } = await supabase.rpc('remove_member', {
-        p_workspace_id: workspaceId,
-        p_target_user_id: memberUserId,
-      });
-
-      if (error) throw new Error(error.message);
-      queryClient.setQueryData<WorkspaceMember[]>(['workspace_members', workspaceId], (current) => {
-        if (!current) return current;
-        return current.filter((m) => m.user_id !== memberUserId);
-      });
-      await queryClient.invalidateQueries({ queryKey: ['workspace_members', workspaceId] });
+      await removeMember.mutateAsync(memberUserId);
       setMemberError(null);
     } catch (err) {
       setMemberError((err as Error)?.message || 'Не удалось удалить участника');
     }
-  }, [members, isLastOwner, workspaceId, queryClient]);
+  }, [members, isLastOwner, removeMember]);
 
   const handleRevokeInvite = useCallback(async (inviteId: string) => {
     try {

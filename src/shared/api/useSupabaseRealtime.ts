@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from './supabase';
 import { realtimeDedup } from './realtimeDedup';
+import { workspaceKeys, productKeys, releaseKeys } from './queryKeys';
+import type { ReleaseStatus } from '../../features/workspaces/utils/releaseWorkflow';
 
 interface RealtimePayload {
   eventType?: string;
@@ -16,7 +18,7 @@ interface QueryListItem {
 
 interface ReleaseRecord {
   id?: string;
-  status?: string | null;
+  status?: ReleaseStatus | null;
   published_at?: string | null;
   [key: string]: unknown;
 }
@@ -30,18 +32,16 @@ const tableLabels: Record<string, string> = {
 const invalidateQueryByTable = (queryClient: ReturnType<typeof useQueryClient>, table: string) => {
   switch (table) {
     case 'workspaces':
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.all });
       queryClient.invalidateQueries({ queryKey: ['workspace'] });
       break;
     case 'workspace_members':
-      queryClient.invalidateQueries({ queryKey: ['workspace_members'] });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.all });
       queryClient.invalidateQueries({ queryKey: ['workspace'] });
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       break;
     case 'workspace_invites':
-      queryClient.invalidateQueries({ queryKey: ['workspace_invites'] });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.all });
       queryClient.invalidateQueries({ queryKey: ['workspace'] });
-      queryClient.invalidateQueries({ queryKey: ['workspaces'] });
       break;
     default:
       return;
@@ -129,18 +129,18 @@ export const useWorkspaceRealtime = (workspaceId: string) => {
       const productId = typeof incoming?.product_id === 'string' ? incoming.product_id : undefined;
       if (!productId) return false;
 
-      const products = queryClient.getQueryData<Array<{ id?: unknown }>>(['products', workspaceId]);
+      const products = queryClient.getQueryData<Array<{ id?: unknown }>>(workspaceKeys.products(workspaceId));
       if (!Array.isArray(products)) return true;
       return products.some((product) => product.id === productId);
     };
 
     const updateWorkspaceReleasesCache = (payload: { eventType?: string; new?: Record<string, unknown> | null; old?: Record<string, unknown> | null }) => {
-      applyListChange(queryClient, ['workspace_releases', workspaceId], payload as RealtimePayload);
+      applyListChange(queryClient, workspaceKeys.releases(workspaceId), payload as RealtimePayload);
 
       if (payload.eventType === 'DELETE') {
         const productId = typeof payload.old?.product_id === 'string' ? payload.old.product_id : undefined;
         if (productId) {
-          applyListChange(queryClient, ['product_releases', productId], payload as RealtimePayload);
+          applyListChange(queryClient, productKeys.releases(productId), payload as RealtimePayload);
         }
       }
     };
@@ -151,25 +151,25 @@ export const useWorkspaceRealtime = (workspaceId: string) => {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'workspace_members', filter: `workspace_id=eq.${workspaceId}` },
           () => {
-            queryClient.invalidateQueries({ queryKey: ['workspace_members', workspaceId] });
-            queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] });
-            queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.members(workspaceId) });
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.detail(workspaceId) });
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.all });
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'workspace_invites', filter: `workspace_id=eq.${workspaceId}` },
           () => {
-            queryClient.invalidateQueries({ queryKey: ['workspace_invites', workspaceId] });
-            queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] });
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.invites(workspaceId) });
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.detail(workspaceId) });
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'products', filter: `workspace_id=eq.${workspaceId}` },
           () => {
-            queryClient.invalidateQueries({ queryKey: ['products', workspaceId] });
-            queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.products(workspaceId) });
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.releases(workspaceId) });
           }
         )
         .on(
@@ -179,7 +179,7 @@ export const useWorkspaceRealtime = (workspaceId: string) => {
             const releasePayload = payload as { eventType?: string; new?: Record<string, unknown> | null; old?: Record<string, unknown> | null };
             if (!isReleaseInWorkspace(releasePayload)) return;
             updateWorkspaceReleasesCache(releasePayload);
-            queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
+            queryClient.invalidateQueries({ queryKey: workspaceKeys.releases(workspaceId) });
           }
         );
 
@@ -213,16 +213,16 @@ export const useReleaseRealtime = (releaseId: string, workspaceId?: string) => {
           { event: '*', schema: 'public', table: 'releases', filter: `id=eq.${releaseId}` },
           (payload: RealtimePayload) => {
             if (payload.eventType === 'DELETE') {
-              queryClient.setQueryData(['release', releaseId], null);
-              queryClient.setQueryData(['release_deleted', releaseId], true);
+              queryClient.setQueryData(releaseKeys.detail(releaseId), null);
+              queryClient.setQueryData(releaseKeys.deleted(releaseId), true);
               if (workspaceId) {
-                removeItemFromAllMatchingQueries(queryClient, ['workspace_releases', workspaceId], releaseId);
-                queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
+                removeItemFromAllMatchingQueries(queryClient, workspaceKeys.releases(workspaceId), releaseId);
+                queryClient.invalidateQueries({ queryKey: workspaceKeys.releases(workspaceId) });
               }
               const productId = typeof payload.old?.product_id === 'string' ? payload.old.product_id : undefined;
               if (productId) {
-                removeItemFromAllMatchingQueries(queryClient, ['product_releases', productId], releaseId);
-                queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
+                removeItemFromAllMatchingQueries(queryClient, productKeys.releases(productId), releaseId);
+                queryClient.invalidateQueries({ queryKey: productKeys.releases(productId) });
               }
               return;
             }
@@ -230,14 +230,14 @@ export const useReleaseRealtime = (releaseId: string, workspaceId?: string) => {
             const nextStatus = typeof payload.new?.status === 'string' ? payload.new.status : undefined;
             if (nextStatus && realtimeDedup.consumeIfOwn('releases', releaseId, nextStatus)) return;
 
-            queryClient.setQueryData(['release_deleted', releaseId], false);
-            queryClient.setQueryData(['release', releaseId], (current: ReleaseRecord | undefined) => {
+            queryClient.setQueryData(releaseKeys.deleted(releaseId), false);
+            queryClient.setQueryData(releaseKeys.detail(releaseId), (current: ReleaseRecord | undefined) => {
               if (!current) return payload.new ? (payload.new as ReleaseRecord) : current;
               return { ...current, ...(payload.new ? (payload.new as ReleaseRecord) : {}) };
             });
-            queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+            queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
             if (workspaceId) {
-              queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
+              queryClient.invalidateQueries({ queryKey: workspaceKeys.releases(workspaceId) });
             }
           }
         )
@@ -250,31 +250,31 @@ export const useReleaseRealtime = (releaseId: string, workspaceId?: string) => {
             const changeId = typeof incoming?.id === 'string' ? incoming.id : undefined;
             const position = typeof incoming?.position === 'number' ? incoming.position : undefined;
             if (changeId && position !== undefined && realtimeDedup.consumeIfOwn('release_changes', changeId, position)) return;
-            applyListChangeForRelease(['release_changes', releaseId], payload);
+            applyListChangeForRelease(releaseKeys.changes(releaseId), payload);
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'comments', filter: `release_id=eq.${releaseId}` },
           (payload: RealtimePayload) => {
-            applyListChangeForRelease(['release_comments', releaseId], payload);
-            queryClient.invalidateQueries({ queryKey: ['release_comments', releaseId] });
+            applyListChangeForRelease(releaseKeys.comments(releaseId), payload);
+            queryClient.invalidateQueries({ queryKey: releaseKeys.comments(releaseId) });
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'release_reviewers', filter: `release_id=eq.${releaseId}` },
           (payload: RealtimePayload) => {
-            applyListChangeForRelease(['release_reviewers', releaseId], payload);
-            queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
+            applyListChangeForRelease(releaseKeys.reviewers(releaseId), payload);
+            queryClient.invalidateQueries({ queryKey: releaseKeys.reviewers(releaseId) });
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'activity_events', filter: `release_id=eq.${releaseId}` },
           (payload: RealtimePayload) => {
-            applyListChangeForRelease(['release_activity', releaseId], payload);
-            queryClient.invalidateQueries({ queryKey: ['release_activity', releaseId] });
+            applyListChangeForRelease(releaseKeys.activity(releaseId), payload);
+            queryClient.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) });
           }
         );
 
@@ -302,8 +302,8 @@ export const useProductReleasesRealtime = (productId: string) => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'releases', filter: `product_id=eq.${productId}` },
         (payload) => {
-          applyListChange(queryClient, ['product_releases', productId], payload as RealtimePayload);
-          queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
+          applyListChange(queryClient, productKeys.releases(productId), payload as RealtimePayload);
+          queryClient.invalidateQueries({ queryKey: productKeys.releases(productId) });
         }
       );
 

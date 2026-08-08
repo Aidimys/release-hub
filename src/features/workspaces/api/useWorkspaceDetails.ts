@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../shared/api/supabase';
+import { workspaceKeys, productKeys, releaseKeys } from '../../../shared/api/queryKeys';
 import type { Database } from '../../../shared/api/database.types';
 
 type WorkspaceMemberRow = Database['public']['Tables']['workspace_members']['Row'];
@@ -22,7 +23,7 @@ interface WorkspaceInvite extends WorkspaceInviteRow {
 // 1. Получение пространства
 export const useWorkspace = (workspaceId: string) => {
   return useQuery({
-    queryKey: ['workspace', workspaceId],
+    queryKey: workspaceKeys.detail(workspaceId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('workspaces')
@@ -42,7 +43,7 @@ export type { WorkspaceMember, WorkspaceInvite };
 // 2. Получение участников
 export const useWorkspaceMembers = (workspaceId: string) => {
   return useQuery<WorkspaceMember[]>({
-    queryKey: ['workspace_members', workspaceId],
+    queryKey: workspaceKeys.members(workspaceId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('workspace_members')
@@ -81,7 +82,7 @@ export const useWorkspaceMembers = (workspaceId: string) => {
 // 2b. Получение приглашений
 export const useWorkspaceInvites = (workspaceId: string) => {
   return useQuery<WorkspaceInvite[]>({
-    queryKey: ['workspace_invites', workspaceId],
+    queryKey: workspaceKeys.invites(workspaceId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('workspace_invites')
@@ -112,7 +113,7 @@ export const useWorkspaceInvites = (workspaceId: string) => {
 // 3. Получение продуктов
 export const useProducts = (workspaceId: string) => {
   return useQuery({
-    queryKey: ['products', workspaceId],
+    queryKey: workspaceKeys.products(workspaceId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('products')
@@ -131,7 +132,7 @@ export const useProducts = (workspaceId: string) => {
 // 4. Получение одного продукта
 export const useProductDetails = (productId: string) => {
   return useQuery({
-    queryKey: ['product', productId],
+    queryKey: productKeys.detail(productId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('products')
@@ -150,7 +151,7 @@ export const useProductDetails = (productId: string) => {
 // 5. Получение релизов продукта
 export const useProductReleases = (productId: string) => {
   return useQuery({
-    queryKey: ['product_releases', productId],
+    queryKey: productKeys.releases(productId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('releases')
@@ -169,7 +170,7 @@ export const useProductReleases = (productId: string) => {
 // 6. Получение релизов рабочего пространства
 export const useWorkspaceReleases = (workspaceId: string) => {
   return useQuery({
-    queryKey: ['workspace_releases', workspaceId],
+    queryKey: workspaceKeys.releases(workspaceId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('releases')
@@ -202,7 +203,7 @@ export const useWorkspaceReleases = (workspaceId: string) => {
 // 7. Получение журнала активности рабочего пространства
 export const useWorkspaceActivity = (workspaceId: string) => {
   return useQuery({
-    queryKey: ['workspace_activity', workspaceId],
+    queryKey: workspaceKeys.activity(workspaceId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activity_events')
@@ -252,8 +253,8 @@ export const useUpdateProduct = (workspaceId: string) => {
       return data;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['products', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['product', variables.productId] });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.products(workspaceId) });
+      queryClient.invalidateQueries({ queryKey: productKeys.detail(variables.productId) });
     },
   });
 };
@@ -274,10 +275,10 @@ export const useDeleteProduct = (workspaceId: string) => {
       return productId;
     },
     onSuccess: (_data, productId) => {
-      queryClient.invalidateQueries({ queryKey: ['products', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
-      queryClient.invalidateQueries({ queryKey: ['product', productId] });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.products(workspaceId) });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.releases(workspaceId) });
+      queryClient.invalidateQueries({ queryKey: productKeys.releases(productId) });
+      queryClient.invalidateQueries({ queryKey: productKeys.detail(productId) });
     },
   });
 };
@@ -297,18 +298,18 @@ export const useDeleteRelease = (workspaceId: string) => {
       return releaseId;
     },
     onMutate: async (releaseId: string) => {
-      await queryClient.cancelQueries({ queryKey: ['workspace_releases', workspaceId] });
-      await queryClient.cancelQueries({ queryKey: ['product_releases'] });
+      await queryClient.cancelQueries({ queryKey: workspaceKeys.releases(workspaceId) });
+      await queryClient.cancelQueries({ queryKey: productKeys.all });
 
-      const previousWorkspaceReleases = queryClient.getQueryData<Array<{ id?: string | null }>>(['workspace_releases', workspaceId]);
-      const previousProductReleases = queryClient.getQueriesData({ queryKey: ['product_releases'] });
+      const previousWorkspaceReleases = queryClient.getQueryData<Array<{ id?: string | null }>>(workspaceKeys.releases(workspaceId));
+      const previousProductReleases = queryClient.getQueriesData({ queryKey: productKeys.all });
 
-      queryClient.setQueryData(['workspace_releases', workspaceId], (current: Array<{ id?: string | null }> | undefined) => {
+      queryClient.setQueryData(workspaceKeys.releases(workspaceId), (current: Array<{ id?: string | null }> | undefined) => {
         if (!current) return current;
         return current.filter((item) => item.id !== releaseId);
       });
 
-      queryClient.setQueriesData({ queryKey: ['product_releases'] }, (current: Array<{ id?: string | null }> | undefined) => {
+      queryClient.setQueriesData({ queryKey: productKeys.all }, (current: Array<{ id?: string | null }> | undefined) => {
         if (!current) return current;
         return current.filter((item) => item.id !== releaseId);
       });
@@ -317,7 +318,7 @@ export const useDeleteRelease = (workspaceId: string) => {
     },
     onError: (_error, _releaseId, context) => {
       if (context?.previousWorkspaceReleases) {
-        queryClient.setQueryData(['workspace_releases', workspaceId], context.previousWorkspaceReleases);
+        queryClient.setQueryData(workspaceKeys.releases(workspaceId), context.previousWorkspaceReleases);
       }
       if (context?.previousProductReleases) {
         context.previousProductReleases.forEach(([key, value]) => {
@@ -325,9 +326,9 @@ export const useDeleteRelease = (workspaceId: string) => {
         });
       }
     },
-    onSettled: (_data, releaseId) => {
-      queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.releases(workspaceId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(variables) });
     },
   });
 };
@@ -353,7 +354,7 @@ export const useCreateInvite = (workspaceId: string) => {
       return data as string;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace_invites', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.invites(workspaceId) });
     },
   });
 };
@@ -401,7 +402,7 @@ export const useRevokeInvite = (workspaceId: string) => {
       return data as string;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace_invites', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.invites(workspaceId) });
     },
   });
 };
@@ -425,7 +426,7 @@ export const useResendInvite = (workspaceId: string) => {
       return data as string;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workspace_invites', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.invites(workspaceId) });
     },
   });
 };
@@ -451,7 +452,7 @@ export const useCancelPublishedRelease = (workspaceId: string) => {
       return data;
     },
     onSuccess: (_data, { releaseId, productId }) => {
-      queryClient.setQueryData(['release_reviewers', releaseId], (current: Array<{ decision?: string | null; decided_at?: string | null }> | undefined) => {
+      queryClient.setQueryData(releaseKeys.reviewers(releaseId), (current: Array<{ decision?: string | null; decided_at?: string | null }> | undefined) => {
         if (!current) return current;
         return current.map((reviewer) => ({
           ...reviewer,
@@ -459,12 +460,59 @@ export const useCancelPublishedRelease = (workspaceId: string) => {
           decided_at: null,
         }));
       });
-      queryClient.invalidateQueries({ queryKey: ['release_reviewers', releaseId] });
-      queryClient.invalidateQueries({ queryKey: ['workspace_releases', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['release', releaseId] });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.reviewers(releaseId) });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.releases(workspaceId) });
+      queryClient.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) });
       if (productId) {
-        queryClient.invalidateQueries({ queryKey: ['product_releases', productId] });
+        queryClient.invalidateQueries({ queryKey: productKeys.releases(productId) });
       }
+    },
+  });
+};
+
+export const useChangeMemberRole = (workspaceId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ memberUserId, nextRole }: { memberUserId: string; nextRole: Database['public']['Enums']['workspace_role'] }) => {
+      const { data, error } = await supabase.rpc('change_member_role', {
+        p_workspace_id: workspaceId,
+        p_target_user_id: memberUserId,
+        p_new_role: nextRole,
+      });
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: (_data, { memberUserId, nextRole }) => {
+      queryClient.setQueryData<WorkspaceMember[]>(workspaceKeys.members(workspaceId), (current) => {
+        if (!current) return current;
+        return current.map((m) => (m.user_id === memberUserId ? { ...m, role: nextRole } : m));
+      });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.members(workspaceId) });
+    },
+  });
+};
+
+export const useRemoveMember = (workspaceId: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (memberUserId: string) => {
+      const { data, error } = await supabase.rpc('remove_member', {
+        p_workspace_id: workspaceId,
+        p_target_user_id: memberUserId,
+      });
+
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: (_data, memberUserId) => {
+      queryClient.setQueryData<WorkspaceMember[]>(workspaceKeys.members(workspaceId), (current) => {
+        if (!current) return current;
+        return current.filter((m) => m.user_id !== memberUserId);
+      });
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.members(workspaceId) });
     },
   });
 };

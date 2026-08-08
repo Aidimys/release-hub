@@ -2,14 +2,14 @@ export type ReleaseChangeCategory = 'feature' | 'improvement' | 'bugfix' | 'secu
 
 export interface ReleaseChangeSummary {
   id: string;
-  category: string;
+  category: ReleaseChangeCategory;
   title: string;
   description: string;
   position: number;
 }
 
 export interface GroupedReleaseChange {
-  category: string;
+  category: ReleaseChangeCategory;
   label: string;
   changes: ReleaseChangeSummary[];
 }
@@ -25,7 +25,7 @@ const categoryLabels: Record<ReleaseChangeCategory, string> = {
 const categoryOrder: ReleaseChangeCategory[] = ['feature', 'improvement', 'bugfix', 'security', 'breaking'];
 
 export const groupReleaseChangesByCategory = (changes: ReleaseChangeSummary[]): GroupedReleaseChange[] => {
-  const groups = new Map<string, ReleaseChangeSummary[]>();
+  const groups = new Map<ReleaseChangeCategory, ReleaseChangeSummary[]>();
 
   changes.forEach((change) => {
     const key = change.category;
@@ -35,7 +35,7 @@ export const groupReleaseChangesByCategory = (changes: ReleaseChangeSummary[]): 
   });
 
   const orderedKeys = categoryOrder.filter((key) => groups.has(key));
-  const extraKeys = Array.from(groups.keys()).filter((key) => !categoryOrder.includes(key as ReleaseChangeCategory));
+  const extraKeys = Array.from(groups.keys()).filter((key) => !categoryOrder.includes(key));
 
   return [
     ...orderedKeys.map((key) => ({
