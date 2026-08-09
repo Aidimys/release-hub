@@ -71,7 +71,7 @@
 - `workspace_role` enum: `owner | maintainer | contributor`;
 - `usePermissions.ts` вычисляет доступные действия по ролям;
 - `supabase/migrations/...sql` содержит политики вида `Owners maintainers can update releases`, `Members can view products in same workspace` и др.;
-- для сложных действий используются `create_workspace_with_defaults`, `invite_member`, `change_member_role`, `remove_member`, `cancel_published_release`.
+- для сложных действий используются `create_workspace_with_defaults`, `create_invite`, `accept_invite`, `revoke_invite`, `resend_invite`, `change_member_role`, `remove_member`, `cancel_published_release`, `submit_release_for_review`, `cast_release_vote`, `publish_release`, `return_rejected_release_to_draft`.
 
 Плюсы:
 
@@ -92,7 +92,7 @@
 Как это реализовано:
 
 - в `ReleaseDetailsPage` при изменении статуса релиза сразу обновляется `queryClient.setQueryData(...)`;
-- затем данные отправляются в `supabase.from('releases').update(...)`;
+- затем данные отправляются через SECURITY DEFINER RPC (`submit_release_for_review`, `cast_release_vote`, `publish_release`, `return_rejected_release_to_draft`);
 - если запрос падает, данные в кэше откатываются до исходного значения.
 
 Почему:
